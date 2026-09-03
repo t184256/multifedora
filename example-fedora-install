@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Install Fedora unattended. Just an example I'm using for testing.
+
+set -Eeuo pipefail
+
+[[ $# -eq 3 ]] || { echo "usage: $0 ISO KS DISK" >&2; exit 2; }
+
+command -v qemu-system-x86_64 nc >/dev/null
+
+ISO=$1
+KS_IMG=$2
+DISK=$3
+DISK_GB=${DISK_GB:-16G}  # if file does not exist
+CPU_CORES=${CPU_CORES:-2}
+RAM_GB=${RAM_GB:-4}
+DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging, or just
+                    # echo 'screendump screen.png -f png' | nc localhost 4545
+MON=${MON:-4545}
+TIMEOUT_MIN=${TIMEOUT_MIN:-30}  # on my system it takes ~5 minutes
+
+DISK_FRESH=0
+if [[ ! -f "$DISK" ]]; then
+  qemu-img create -f raw "$DISK" "$DISK_GB"
+  DISK_FRESH=1
+fi
+parted -s "$DISK" mklabel gpt  # autopart ignores it otherwise for some reason
+
+# throwaway OVMF copies
+CODE=$(mktemp /tmp/fedora-install-code.XXXX.fd)
+VARS=$(mktemp /tmp/fedora-install-vars.XXXX.fd)
+trap 'rm -f "$CODE" "$VARS"' EXIT
+OVMF=${OVMF:-/usr/share/edk2/ovmf}
+cp "$OVMF/OVMF_CODE.fd" "$CODE"
+cp "$OVMF/OVMF_VARS.fd" "$VARS"
+
+(
+  # try to save ~50s on GRUB screen
+  sleep 5; nc localhost "$MON" <<<$'sendkey up\nsendkey ret' >/dev/null
+  sleep 55
+  for ((i = TIMEOUT_MIN - 1; i > 1; i--)); do
+    msg="  $i minutes until timeout"
+    (( DISK_FRESH )) && msg+=", $(du -sm "$DISK" | cut -f1)M written so far"
+    echo "$msg..."
+    (( i > 2 )) && sleep 1m
+  done
+)&
+BACKGROUND=$!
+trap 'kill $BACKGROUND 2>/dev/null; rm -f "$CODE" "$VARS"' EXIT
+
+echo "Installing $ISO to $DISK with a timeout of $TIMEOUT_MIN minutes..."
+timeout "${TIMEOUT_MIN}m" qemu-system-x86_64 \
+  -monitor "tcp:localhost:$MON,server,nowait" \
+  -machine q35 -cpu host -enable-kvm \
+  -smp "$CPU_CORES" \
+  -m "${RAM_GB}G" \
+  -drive if=pflash,format=raw,unit=0,file="$CODE" \
+  -drive if=pflash,format=raw,unit=1,file="$VARS" \
+  -display "$DISP" \
+  -device qemu-xhci,id=cdbus -device usb-storage,bus=cdbus.0,drive=iso \
+  -drive file="$ISO",if=none,id=iso,format=raw,readonly=on \
+  -device usb-storage,bus=cdbus.0,drive=ks \
+  -drive file="$KS_IMG",if=none,id=ks,format=raw,readonly=on \
+  -drive file="$DISK",if=virtio,cache=none,format=raw \
+  -net none \
+  -no-reboot
+echo "QEMU completed, $ISO might be installed into $DISK."

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Extract data from an installed Fedora disk image with a default btrfs layout:
+# GPT(ESP(vfat), /boot(xfs), p3=LUKS(btrfs(@,@home,...)).
+# Writes:
+#   OUT_ESP_TAR       tarball of the ESP partition contents
+#   OUT_BOOT_TAR      tarball of the /boot partition contents
+#   OUT_ROOT_BTRFS    single btrfs send stream of all subvolumes
+
+set -Eeuo pipefail
+
+if [[ $# -ne 5 ]]; then
+  echo \
+    "usage: $0 IMG LUKS_PASSPHRASE OUT_ESP_TAR OUT_BOOT_TAR OUT_ROOT_BTRFS" >&2
+  exit 2
+fi
+
+command -v losetup blkid mount tar cryptsetup btrfs >/dev/null
+
+IMG=$1
+LUKS_PASSPHRASE=$2
+OUT_ESP_TAR=$3
+OUT_BOOT_TAR=$4
+OUT_ROOT_BTRFS=$5
+
+LO=$(losetup --find --show --partscan "$IMG")
+TMP=$(mktemp -d)
+SUBVOLS=()
+TOGGLED=()
+cleanup() {
+  for sv in "${TOGGLED[@]}"; do
+    btrfs property set "$TMP/$sv" ro false 2>/dev/null || true
+  done
+  umount "$TMP" 2>/dev/null || true
+  cryptsetup close fedroot 2>/dev/null || true
+  losetup -d "$LO" 2>/dev/null || true
+  rmdir "$TMP"
+}
+trap cleanup EXIT
+
+[[ $(blkid -s TYPE -o value "${LO}"p{1,2,3}) == $'vfat\nxfs\ncrypto_LUKS' ]]
+[[ ! -e "${LO}p4" ]] || exit 1
+
+mount -o ro "${LO}p1" "$TMP"; tar -C "$TMP" -cf "$OUT_ESP_TAR" .; umount "$TMP"
+mount -o ro "${LO}p2" "$TMP"; tar -C "$TMP" -cf "$OUT_BOOT_TAR" .; umount "$TMP"
+
+# btrfs send requires the ro subvolume flag (a ro mount is not enough),
+# so toggle it transiently on each rw one, then send them all together
+echo -n "$LUKS_PASSPHRASE" | cryptsetup open --key-file=- "${LO}p3" fedroot
+mount -o subvolid=5 /dev/mapper/fedroot "$TMP"
+mapfile -t SUBVOLS < <(btrfs subvolume list "$TMP" | cut -d' ' -f9-)
+for sv in "${SUBVOLS[@]}"; do
+  if [[ $(btrfs property get "$TMP/$sv" ro) == 'ro: false' ]]; then
+    btrfs property set "$TMP/$sv" ro true
+    TOGGLED+=("$sv")
+  fi
+done
+
+btrfs send -e --parents --proto 0 --compressed-data \
+  -f "$OUT_ROOT_BTRFS" "${SUBVOLS[@]/#/$TMP/}"
+
+for sv in "${TOGGLED[@]}"; do btrfs property set "$TMP/$sv" ro false; done
+umount "$TMP"
+
+echo "unpacked: $OUT_ESP_TAR $OUT_BOOT_TAR $OUT_ROOT_BTRFS"
