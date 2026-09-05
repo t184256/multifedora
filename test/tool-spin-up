@@ -5,10 +5,13 @@
 #   2. type the LUKS passphrase at dracut's prompt (~15s in; it never times out)
 #   3. wait for the SSH port, log in as root on tty1
 #   4. inject test/tmp/ssh-key.pub via tee, verify ssh works
+# If an optional COMMAND is passed, run it inside the VM over SSH
+# instead of leaving the VM running.
 set -Eeuo pipefail
 
-[[ $# -eq 1 ]] || { echo "usage: $0 DISK" >&2; exit 2; }
+[[ $# -ge 1 ]] || { echo "usage: $0 DISK [COMMAND...]" >&2; exit 2; }
 SRC=$1
+COMMAND=("${@:2}")
 LUKS_PASS=${LUKS_PASS:-example}
 ROOT_PASS=${ROOT_PASS:-example}
 SSHPORT=${SSHPORT:-2234}
@@ -27,7 +30,11 @@ OVMF=${OVMF:-/usr/share/edk2/ovmf}
   mkdir -p test/tmp
   ssh-keygen -t ed25519 -N '' -C tool-spin-up -f test/tmp/ssh-key -q
 }
-trap 'rm -f "$CODE" "$VARS"; [[ -n ${QEMU_PID:-} ]] && kill "$QEMU_PID" 2>/dev/null' EXIT
+cleanup() {
+  rm -f "$CODE" "$VARS"
+  [[ -n ${QEMU_PID:-} ]] && kill "$QEMU_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 cp "$OVMF/OVMF_CODE.fd" "$CODE"
 cp "$OVMF/OVMF_VARS.fd" "$VARS"
@@ -118,6 +125,15 @@ if ! test/tool-inside-vm 'echo "SSH works, use ./test/tool-inside-vm"'; then
   mon 'screendump /tmp/tool-spin-up-fail.png -f png'
   kill "$QEMU_PID" 2>/dev/null
   die 'SSH never went up, see /tmp/tool-spin-up-fail.png'
+fi
+
+if (( ${#COMMAND[@]} )); then
+  RC=0
+  test/tool-inside-vm "${COMMAND[@]}" || RC=$?
+  echo "command exited with $RC, powering off..."
+  test/tool-inside-vm poweroff >/dev/null 2>&1 || true
+  wait "$QEMU_PID" || true
+  exit "$RC"
 fi
 
 wait "$QEMU_PID"
