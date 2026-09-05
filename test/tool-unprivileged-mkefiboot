@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# A stub replacing mkefiboot for mkksiso. Uses mtools and doesn't need root.
+# Interface: mkefiboot --label=LABEL BOOTDIR OUTFILE
+set -Eeuo pipefail
+
+LABEL=""
+args=()
+for a in "$@"; do
+  case $a in
+    --label=*) LABEL=${a#--label=} ;;
+    *) args+=("$a") ;;
+  esac
+done
+if [[ ${#args[@]} -ne 2 ]]; then
+  echo "usage: $0 --label=L BOOTDIR OUT" >&2
+  exit 2
+fi
+BOOTDIR=${args[0]}
+OUT=${args[1]}
+
+# size from content: 2x slack for FAT overhead, rounded to 512-byte blocks
+total=$(du -sb "$BOOTDIR" | cut -f1)
+SIZE=$(( (total * 2 + 1048576 + 511) / 512 * 512 ))
+truncate -s "$SIZE" "$OUT"
+mkfs.vfat -n "${LABEL:-ANACONDA}" -S 512 "$OUT" >/dev/null
+mmd -i "$OUT" ::/EFI
+mmd -i "$OUT" ::/EFI/BOOT
+for f in "$BOOTDIR"/*; do
+  mcopy -i "$OUT" "$f" "::/EFI/BOOT/${f##*/}"
+done
+echo "wrote $OUT (${SIZE} bytes, label ${LABEL:-ANACONDA})"
