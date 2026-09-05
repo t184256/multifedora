@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Stage 02: install a second system image, tmp/02/second.img, from within a VM.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/01/initial.img ]] || die 'no tmp/01/initial.img; run stage 01 first'
+
+SHARE=tmp/02/share
+rm -rf "$SHARE"
+mkdir -p "$SHARE"
+cp tool-install "$SHARE/"
+cp --reflink=always tmp/fedora.iso "$SHARE/"
+
+cp --sparse=always tmp/01/initial.img tmp/02/tmp.img
+trap 'rm -f tmp/02/tmp.img' EXIT
+
+# shellcheck disable=SC2016  # expands in the VM
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up tmp/02/tmp.img \
+  'modprobe kvm_intel && \
+   dnf install -y qemu-kvm qemu-img edk2-ovmf libisoburn netcat parted python3 \
+                  lorax && \
+   TMPDIR=/var/tmp /share/tool-install /share/fedora.iso \
+	                               /var/tmp/second.img && \
+   mv /var/tmp/second.img /share/second.img'
+
+mv "$SHARE/second.img" tmp/02/second.img

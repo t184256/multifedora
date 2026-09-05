@@ -1,30 +1,33 @@
-# This is for running the examples, basically
+# aliases
+EXTRCD = tmp/03/second.esp.tar tmp/03/second.boot.tar tmp/03/second.rootfs.btrfs
+.DEFAULT_GOAL := extract-second
+.PHONY: install-initial install-second extract-second supplant-second
+install-initial: tmp/01/initial.img
+install-second: tmp/02/second.img
+extract-second: $(EXTRCD)
 
 ISO_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/44/$\
     Server/x86_64/iso/Fedora-Server-dvd-x86_64-44-1.7.iso
 LUKS_PASS ?= example
 
-tmp/example.img: tmp/fedora.iso
-	@mkdir -p tmp
-	./tool-install $< $@
-
 tmp/fedora.iso:
 	@mkdir -p tmp
 	wget $(ISO_URL) -O $@
 
-EXTD = tmp/example.esp.tar tmp/example.boot.tar tmp/example.subvolumes.btrfs
-$(EXTD) &: tmp/example.img
-	./extract
+tmp/01/initial.img: tmp/fedora.iso 01-install-initial tool-install
+	./01-install-initial
 
-# short aliases
-.PHONY: example.img ext
-example.img: tmp/example.img
-ext: $(EXTD)
+tmp/02/second.img: tmp/01/initial.img tmp/fedora.iso
+tmp/02/second.img: 02-install-second tool-install
+	./02-install-second
+
+$(EXTRCD) &: tmp/02/second.img 03-extract-second ../fedora-extract
+	./03-extract-second
+
 
 .PHONY: clean deepclean
 clean:
-	rm -f tmp/example.ks.img tmp/example.img tmp/inception.tmp.img $(EXTD)
-	rm -rf tmp/extract-share
+	rm -rf tmp/01 tmp/02 tmp/03 tmp/04
 
 deepclean: clean
-	rm -f tmp/fedora.iso
+	rm -rf tmp

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stage 01: install the initial system on the host into tmp/01/initial.img.
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+mkdir -p tmp/01
+exec ./tool-install tmp/fedora.iso tmp/01/initial.img

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Stage 03: extract the second system image into files under tmp/03/.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+mkdir -p tmp/03/share
+cp ../fedora-extract tmp/03/share
+cp --sparse=always tmp/01/initial.img tmp/03/tmp-initial.img
+cp --sparse=always tmp/02/second.img tmp/03/share/second.img
+trap 'rm -rf tmp/03/tmp-initial.img tmp/03/share' EXIT
+
+SHARE_DIR=tmp/03/share ./tool-spin-up tmp/03/tmp-initial.img \
+  "cd /share && \
+   ./fedora-extract second.img example \
+                    second.esp.tar second.boot.tar second.rootfs.btrfs"
+
+mv tmp/03/share/second.esp.tar tmp/03/
+mv tmp/03/share/second.boot.tar tmp/03/
+mv tmp/03/share/second.rootfs.btrfs tmp/03/
