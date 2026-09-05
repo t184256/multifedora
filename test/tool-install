@@ -17,14 +17,15 @@ DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging, or just
 MON=${MON:-4545}
 TIMEOUT_MIN=${TIMEOUT_MIN:-30}  # on my system it takes ~5 minutes
 
-SSH_KEY=test/tmp/ssh-key
+D=$(dirname "$0")
+SSH_KEY=$D/tmp/ssh-key
 [[ -f $SSH_KEY ]] || {
-  mkdir -p test/tmp
+  mkdir -p "$D"/tmp
   ssh-keygen -t ed25519 -N '' -C tool-install -f "$SSH_KEY" -q
 }
 
 # kickstart with the public key embedded
-KS=test/tmp/example.ks
+KS=$D/tmp/example.ks
 sed "s|@PUBKEY@|$(cat "$SSH_KEY.pub")|" > "$KS" <<'EOF'
 cdrom  # required: install
 cmdline  # required: text mode
@@ -37,6 +38,7 @@ sshkey --username root "@PUBKEY@"
 %packages --exclude-weakdeps
 @core --nodefaults
 openssh-server
+tar
 -audit  # not -audit*: audit-libs is required by util-linux/openssh/shadow-utils
 -chrony
 -dracut-config-rescue
@@ -78,7 +80,7 @@ poweroff
 EOF
 
 # kickstart USB image; 72 MiB keeps the FAT32 above the 65525-cluster minimum
-KS_IMG=test/tmp/example.ks.img
+KS_IMG=$D/tmp/example.ks.img
 truncate -s 72M "$KS_IMG"
 guestfish <<EOF
 add "$KS_IMG"
