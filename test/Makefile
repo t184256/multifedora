@@ -12,9 +12,9 @@ tmp/fedora.iso:
 	@mkdir -p tmp
 	wget $(ISO_URL) -O $@
 
-EXTD = tmp/example-fedora-ESP.tar tmp/example-fedora-boot.tar tmp/example-fedora-root.btrfs
+EXTD = tmp/example.esp.tar tmp/example.boot.tar tmp/example.subvolumes.btrfs
 $(EXTD) &: tmp/example.img
-	../fedora-extract $^ $(LUKS_PASS) $(EXTD)
+	./extract
 
 # short aliases
 .PHONY: example.img ext
@@ -23,7 +23,8 @@ ext: $(EXTD)
 
 .PHONY: clean deepclean
 clean:
-	rm -f tmp/example.ks.img tmp/example.img $(EXTD)
+	rm -f tmp/example.ks.img tmp/example.img tmp/inception.tmp.img $(EXTD)
+	rm -rf tmp/extract-share
 
 deepclean: clean
 	rm -f tmp/fedora.iso

@@ -5,7 +5,7 @@ set -Eeuo pipefail
 
 [[ $# -eq 2 ]] || { echo "usage: $0 ISO DISK" >&2; exit 2; }
 
-command -v qemu-system-x86_64 nc guestfish ssh-keygen >/dev/null
+command -v qemu-system-x86_64 nc mkksiso ssh-keygen >/dev/null
 
 ISO=$1
 DISK=$2
@@ -20,11 +20,12 @@ TIMEOUT_MIN=${TIMEOUT_MIN:-30}  # on my system it takes ~5 minutes
 D=$(dirname "$0")
 SSH_KEY=$D/tmp/ssh-key
 [[ -f $SSH_KEY ]] || {
-  mkdir -p "$D"/tmp
+  mkdir -p "$D/tmp"
   ssh-keygen -t ed25519 -N '' -C tool-install -f "$SSH_KEY" -q
 }
 
-# kickstart with the public key embedded
+# kickstart with the public key embedded; it gets baked into a throwaway
+# ISO copy by mkksiso further down (along with inst.profile)
 KS=$D/tmp/example.ks
 sed "s|@PUBKEY@|$(cat "$SSH_KEY.pub")|" > "$KS" <<'EOF'
 cdrom  # required: install
@@ -79,21 +80,6 @@ dracut --force
 poweroff
 EOF
 
-# kickstart USB image; 72 MiB keeps the FAT32 above the 65525-cluster minimum
-KS_IMG=$D/tmp/example.ks.img
-truncate -s 72M "$KS_IMG"
-guestfish <<EOF
-add "$KS_IMG"
-run
-part-init /dev/sda mbr
-part-add /dev/sda p 2048 -1
-mkfs vfat /dev/sda1
-set-label /dev/sda1 OEMDRV
-mount /dev/sda1 /
-upload "$KS" /ks.cfg
-umount-all
-EOF
-
 DISK_FRESH=0
 if [[ ! -f "$DISK" ]]; then
   qemu-img create -f raw "$DISK" "$DISK_GB"
@@ -107,6 +93,13 @@ VARS=$(mktemp /tmp/fedora-install-vars.XXXX.fd)
 OVMF=${OVMF:-/usr/share/edk2/ovmf}
 cp "$OVMF/OVMF_CODE.fd" "$CODE"
 cp "$OVMF/OVMF_VARS.fd" "$VARS"
+trap 'rm -f "$CODE" "$VARS"' EXIT
+
+# embed the kickstart and select the workstation profile
+# so that autopart follows the workstation partitioning (root + home subvolumes)
+ISO_PATCHED=$(mktemp -u /tmp/fedora-install-iso.XXXX)  # do not pre-create
+mkksiso --no-md5sum -c "inst.profile=fedora-workstation" --ks "$KS" \
+        "$ISO" "$ISO_PATCHED"
 (
   # try to save ~50s on GRUB screen
   sleep 5; nc localhost "$MON" <<<$'sendkey up\nsendkey ret' >/dev/null
@@ -119,7 +112,7 @@ cp "$OVMF/OVMF_VARS.fd" "$VARS"
   done
 )&
 BACKGROUND=$!
-trap 'kill $BACKGROUND 2>/dev/null; rm -f "$CODE" "$VARS"' EXIT
+trap 'kill $BACKGROUND 2>/dev/null; rm -f "$CODE" "$VARS" "$ISO_PATCHED"' EXIT
 
 echo "Installing $ISO to $DISK with a timeout of $TIMEOUT_MIN minutes..."
 timeout "${TIMEOUT_MIN}m" qemu-system-x86_64 \
@@ -131,9 +124,7 @@ timeout "${TIMEOUT_MIN}m" qemu-system-x86_64 \
   -drive if=pflash,format=raw,unit=1,file="$VARS" \
   -display "$DISP" \
   -device qemu-xhci,id=cdbus -device usb-storage,bus=cdbus.0,drive=iso \
-  -drive file="$ISO",if=none,id=iso,format=raw,readonly=on \
-  -device usb-storage,bus=cdbus.0,drive=ks \
-  -drive file="$KS_IMG",if=none,id=ks,format=raw,readonly=on \
+  -drive file="$ISO_PATCHED",if=none,id=iso,format=raw,readonly=on \
   -drive file="$DISK",if=virtio,cache=none,cache.no-flush=on,format=raw \
   -net none \
   -no-reboot

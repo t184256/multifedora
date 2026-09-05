@@ -8,6 +8,7 @@ set -Eeuo pipefail
 [[ $# -ge 1 ]] || { echo "usage: $0 DISK [COMMAND...]" >&2; exit 2; }
 SRC=$1
 COMMAND=("${@:2}")
+GRUB_DOWN_COUNT=${GRUB_DOWN_COUNT:-0}  # boot Nth entry from the default
 SSHPORT=${SSHPORT:-2234}
 CPU_CORES=${CPU_CORES:-2}
 RAM_GB=${RAM_GB:-4}
@@ -77,9 +78,15 @@ sleep 1
 kill -0 "$QEMU_PID" 2>/dev/null || die "qemu died at startup"
 echo "qemu up (pid $QEMU_PID), monitor on $MON, try SSH'ing in in ~a minute..."
 
-# nudge GRUB: early enters, hoping to skip the menu countdown
-sleep 1; mon 'sendkey ret'
-sleep 1; mon 'sendkey ret'
+if (( ${GRUB_DOWN_COUNT:-0} )); then
+  sleep 3
+  for _ in $(seq "$GRUB_DOWN_COUNT"); do mon sendkey down; done
+  mon 'sendkey ret'
+else
+  # spam early enters, hoping to skip the menu countdown(s) on defaults
+  sleep 1; mon 'sendkey ret'
+  sleep 1; mon 'sendkey ret'
+fi
 
 wait_ssh
 echo 'ssh port is up...'

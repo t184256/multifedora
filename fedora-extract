@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Extract data from an installed Fedora disk image with a default btrfs layout:
-# GPT(ESP(vfat), /boot(xfs), p3=LUKS(btrfs(@,@home,...)).
+# GPT(ESP(vfat), /boot(ext4), p3=LUKS(btrfs(root, home, ...)).
 # Writes:
 #   OUT_ESP_TAR       tarball of the ESP partition contents
 #   OUT_BOOT_TAR      tarball of the /boot partition contents
@@ -37,7 +37,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[[ $(blkid -s TYPE -o value "${LO}"p{1,2,3}) == $'vfat\nxfs\ncrypto_LUKS' ]]
+[[ $(blkid -s TYPE -o value "${LO}"p{1,2,3}) == $'vfat\next4\ncrypto_LUKS' ]]
 [[ ! -e "${LO}p4" ]] || exit 1
 
 mount -o ro "${LO}p1" "$TMP"; tar -C "$TMP" -cf "$OUT_ESP_TAR" .; umount "$TMP"
@@ -49,13 +49,14 @@ echo -n "$LUKS_PASSPHRASE" | cryptsetup open --key-file=- "${LO}p3" fedroot
 mount -o subvolid=5 /dev/mapper/fedroot "$TMP"
 mapfile -t SUBVOLS < <(btrfs subvolume list "$TMP" | cut -d' ' -f9-)
 for sv in "${SUBVOLS[@]}"; do
-  if [[ $(btrfs property get "$TMP/$sv" ro) == 'ro: false' ]]; then
+  # btrfs-progs prints "ro: false" (old) or "ro=false" (new)
+  if [[ $(btrfs property get "$TMP/$sv" ro) == *false* ]]; then
     btrfs property set "$TMP/$sv" ro true
     TOGGLED+=("$sv")
   fi
 done
 
-btrfs send -e --parents --proto 0 --compressed-data \
+btrfs send -e --proto 0 --compressed-data \
   -f "$OUT_ROOT_BTRFS" "${SUBVOLS[@]/#/$TMP/}"
 
 for sv in "${TOGGLED[@]}"; do btrfs property set "$TMP/$sv" ro false; done
