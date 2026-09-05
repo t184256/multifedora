@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Spin up an installed Fedora image, fully blind: fixed waits + QEMU monitor
-# sendkeys on the VGA console (no serial, no expect, no prompt matching).
-#   1. boot DISK (a throwaway copy!) under OVMF+KVM
-#   2. type the LUKS passphrase at dracut's prompt (~15s in; it never times out)
-#   3. wait for the SSH port, log in as root on tty1
-#   4. inject test/tmp/ssh-key.pub via tee, verify ssh works
+# Spin up an installed Fedora image.
 # If an optional COMMAND is passed, run it inside the VM over SSH
 # instead of leaving the VM running.
 # If SHARE_DIR is set, that host directory is mounted at /share
@@ -13,8 +8,6 @@ set -Eeuo pipefail
 [[ $# -ge 1 ]] || { echo "usage: $0 DISK [COMMAND...]" >&2; exit 2; }
 SRC=$1
 COMMAND=("${@:2}")
-LUKS_PASS=${LUKS_PASS:-example}
-ROOT_PASS=${ROOT_PASS:-example}
 SSHPORT=${SSHPORT:-2234}
 CPU_CORES=${CPU_CORES:-2}
 RAM_GB=${RAM_GB:-4}
@@ -27,10 +20,8 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 CODE=$(mktemp /tmp/test-tool-spin-up-code.XXXX.fd)
 VARS=$(mktemp /tmp/test-tool-spin-up-vars.XXXX.fd)
 OVMF=${OVMF:-/usr/share/edk2/ovmf}
-[[ -f test/tmp/ssh-key ]] || {
-  mkdir -p test/tmp
-  ssh-keygen -t ed25519 -N '' -C tool-spin-up -f test/tmp/ssh-key -q
-}
+[[ -f test/tmp/ssh-key ]] || \
+  die 'no test/tmp/ssh-key; install an image with tool-install first'
 cleanup() {
   rm -f "$CODE" "$VARS"
   [[ -n ${QEMU_PID:-} ]] && kill "$QEMU_PID" 2>/dev/null || true
@@ -41,28 +32,6 @@ cp "$OVMF/OVMF_CODE.fd" "$CODE"
 cp "$OVMF/OVMF_VARS.fd" "$VARS"
 
 mon() { printf '%s\n' "$@" | nc -w3 localhost "$MON" >/dev/null; }
-sendchars() {
-  local s=$1 c i=0
-  while [ $i -lt ${#s} ]; do
-    c=${s:i:1}
-    case $c in
-      [a-z0-9]) echo "sendkey $c" ;;
-      [[:upper:]])
-                echo "sendkey shift-$(tr '[:upper:]' '[:lower:]' <<<"$c")" ;;
-      ' ')      echo 'sendkey spc' ;;
-      -)        echo 'sendkey minus' ;;
-      /)        echo 'sendkey slash' ;;
-      .)        echo 'sendkey dot' ;;
-      +)        echo 'sendkey shift-equal' ;;
-      _)        echo 'sendkey shift-minus' ;;
-      *)        { echo "sendchars: unsupported char '$c'" >&2; return 1; } ;;
-    esac
-    i=$((i+1))
-  done
-}
-typeline() {
-  { sendchars "$1"; echo 'sendkey ret'; } | nc -w3 localhost "$MON" >/dev/null
-}
 
 probe_ssh() (
   exec 3<>"/dev/tcp/127.0.0.1/$SSHPORT" 2>/dev/null || return 1
@@ -101,7 +70,7 @@ qemu-system-x86_64 \
   -netdev "user,id=n,hostfwd=tcp:127.0.0.1:$SSHPORT-:22" \
   -device virtio-net-pci,netdev=n \
   "${SHARE_ARGS[@]}" \
-  -drive file="$SRC",if=virtio,format=raw \
+  -drive file="$SRC",if=virtio,cache=none,cache.no-flush=on,format=raw \
   -no-reboot &
 QEMU_PID=$!
 sleep 1
@@ -109,27 +78,11 @@ kill -0 "$QEMU_PID" 2>/dev/null || die "qemu died at startup"
 echo "qemu up (pid $QEMU_PID), monitor on $MON, try SSH'ing in in ~a minute..."
 
 # nudge GRUB: early enters, hoping to skip the menu countdown
-sleep 2; mon 'sendkey ret'
-sleep 2; mon 'sendkey ret'
-sleep 10  # the LUKS prompt appears ~10s in
-typeline "$LUKS_PASS"
+sleep 1; mon 'sendkey ret'
+sleep 1; mon 'sendkey ret'
 
 wait_ssh
 echo 'ssh port is up...'
-sleep 5
-echo 'logging in interactively...'
-typeline root
-sleep .5
-typeline "$ROOT_PASS"
-sleep 1
-
-echo 'configuring SSH...'
-typeline 'mkdir -p /root/.ssh'
-typeline 'tee /root/.ssh/authorized_keys'
-{ sendchars "ssh-ed25519 $(cut -d' ' -f2 test/tmp/ssh-key.pub)"; echo 'sendkey ret'; } \
-  | nc -w3 localhost "$MON" >/dev/null
-sleep 0.25
-mon 'sendkey ctrl-d'
 
 if ! test/tool-inside-vm 'echo "SSH works, use ./test/tool-inside-vm"'; then
   mon 'screendump /tmp/tool-spin-up-fail.png -f png'

@@ -3,13 +3,12 @@
 
 set -Eeuo pipefail
 
-[[ $# -eq 3 ]] || { echo "usage: $0 ISO KS DISK" >&2; exit 2; }
+[[ $# -eq 2 ]] || { echo "usage: $0 ISO DISK" >&2; exit 2; }
 
-command -v qemu-system-x86_64 nc >/dev/null
+command -v qemu-system-x86_64 nc guestfish ssh-keygen >/dev/null
 
 ISO=$1
-KS_IMG=$2
-DISK=$3
+DISK=$2
 DISK_GB=${DISK_GB:-16G}  # if file does not exist
 CPU_CORES=${CPU_CORES:-2}
 RAM_GB=${RAM_GB:-4}
@@ -17,6 +16,81 @@ DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging, or just
                     # echo 'screendump screen.png -f png' | nc localhost 4545
 MON=${MON:-4545}
 TIMEOUT_MIN=${TIMEOUT_MIN:-30}  # on my system it takes ~5 minutes
+
+SSH_KEY=test/tmp/ssh-key
+[[ -f $SSH_KEY ]] || {
+  mkdir -p test/tmp
+  ssh-keygen -t ed25519 -N '' -C tool-install -f "$SSH_KEY" -q
+}
+
+# kickstart with the public key embedded
+KS=test/tmp/example.ks
+sed "s|@PUBKEY@|$(cat "$SSH_KEY.pub")|" > "$KS" <<'EOF'
+cdrom  # required: install
+cmdline  # required: text mode
+# required: storage. --pbkdf-time saves a second of boot time
+autopart --encrypted --passphrase=example --type=btrfs --pbkdf-time=100
+network --hostname=example  # -net none, hostname only
+rootpw example
+sshkey --username root "@PUBKEY@"
+
+%packages --exclude-weakdeps
+@core --nodefaults
+openssh-server
+-audit  # not -audit*: audit-libs is required by util-linux/openssh/shadow-utils
+-chrony
+-dracut-config-rescue
+-firewalld
+-fwupd
+-glibc-gconv-extra.x86_64
+-iproute
+-iputils
+-kernel
+-kernel-modules
+-langpacks-en
+-libbpf
+-libmnl
+-lvm2
+-man-db
+-ncurses
+-plymouth*
+-prefixdevname
+-sssd-*
+-vim-minimal
+glibc-minimal-langpack
+kernel-core
+kernel-modules-core
+%end
+
+%post
+UUID=$(blkid -s UUID -o value -t TYPE=crypto_LUKS)
+echo -n 'example' > /etc/luks-key
+chmod 600 /etc/luks-key
+echo "luks-$UUID UUID=$UUID /etc/luks-key discard,x-initrd.attach" \
+    > /etc/crypttab
+install -d /etc/dracut.conf.d
+echo 'install_optional_items+=" /etc/luks-key "' \
+    > /etc/dracut.conf.d/99lukskey.conf
+dracut --force
+%end
+
+poweroff
+EOF
+
+# kickstart USB image; 72 MiB keeps the FAT32 above the 65525-cluster minimum
+KS_IMG=test/tmp/example.ks.img
+truncate -s 72M "$KS_IMG"
+guestfish <<EOF
+add "$KS_IMG"
+run
+part-init /dev/sda mbr
+part-add /dev/sda p 2048 -1
+mkfs vfat /dev/sda1
+set-label /dev/sda1 OEMDRV
+mount /dev/sda1 /
+upload "$KS" /ks.cfg
+umount-all
+EOF
 
 DISK_FRESH=0
 if [[ ! -f "$DISK" ]]; then
@@ -28,11 +102,9 @@ parted -s "$DISK" mklabel gpt  # autopart ignores it otherwise for some reason
 # throwaway OVMF copies
 CODE=$(mktemp /tmp/fedora-install-code.XXXX.fd)
 VARS=$(mktemp /tmp/fedora-install-vars.XXXX.fd)
-trap 'rm -f "$CODE" "$VARS"' EXIT
 OVMF=${OVMF:-/usr/share/edk2/ovmf}
 cp "$OVMF/OVMF_CODE.fd" "$CODE"
 cp "$OVMF/OVMF_VARS.fd" "$VARS"
-
 (
   # try to save ~50s on GRUB screen
   sleep 5; nc localhost "$MON" <<<$'sendkey up\nsendkey ret' >/dev/null
@@ -60,7 +132,7 @@ timeout "${TIMEOUT_MIN}m" qemu-system-x86_64 \
   -drive file="$ISO",if=none,id=iso,format=raw,readonly=on \
   -device usb-storage,bus=cdbus.0,drive=ks \
   -drive file="$KS_IMG",if=none,id=ks,format=raw,readonly=on \
-  -drive file="$DISK",if=virtio,cache=none,format=raw \
+  -drive file="$DISK",if=virtio,cache=none,cache.no-flush=on,format=raw \
   -net none \
   -no-reboot
 echo "QEMU completed, $ISO might be installed into $DISK."
