@@ -20,8 +20,8 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 CODE=$(mktemp /tmp/test-tool-spin-up-code.XXXX.fd)
 VARS=$(mktemp /tmp/test-tool-spin-up-vars.XXXX.fd)
 OVMF=${OVMF:-/usr/share/edk2/ovmf}
-[[ -f test/tmp/ssh-key ]] || \
-  die 'no test/tmp/ssh-key; install an image with tool-install first'
+D=$(dirname "$0")
+[[ -f "$D/tmp/ssh-key" ]] || die 'no tmp/ssh-key; install first'
 cleanup() {
   rm -f "$CODE" "$VARS"
   [[ -n ${QEMU_PID:-} ]] && kill "$QEMU_PID" 2>/dev/null || true
@@ -84,22 +84,22 @@ sleep 1; mon 'sendkey ret'
 wait_ssh
 echo 'ssh port is up...'
 
-if ! test/tool-inside-vm 'echo "SSH works, use ./test/tool-inside-vm"'; then
+if ! "$D/tool-inside-vm" 'echo "SSH works, use test/tool-inside-vm"'; then
   mon 'screendump /tmp/tool-spin-up-fail.png -f png'
   kill "$QEMU_PID" 2>/dev/null
   die 'SSH never went up, see /tmp/tool-spin-up-fail.png'
 fi
 
 if [[ -n ${SHARE_DIR:-} ]]; then
-  test/tool-inside-vm 'modprobe 9p; mount --mkdir -t 9p virtio /share' \
+  "$D/tool-inside-vm" 'modprobe 9p; mount --mkdir -t 9p virtio /share' \
     || die 'failed to mount the 9p share'
 fi
 
 if (( ${#COMMAND[@]} )); then
   RC=0
-  test/tool-inside-vm "${COMMAND[@]}" || RC=$?
+  "$D/tool-inside-vm" "${COMMAND[@]}" || RC=$?
   echo "command exited with $RC, powering off..."
-  test/tool-inside-vm poweroff >/dev/null 2>&1 || true
+  "$D/tool-inside-vm" poweroff >/dev/null 2>&1 || true
   wait "$QEMU_PID" || true
   exit "$RC"
 fi
