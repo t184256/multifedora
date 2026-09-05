@@ -4,7 +4,7 @@
 #   1. boot DISK (a throwaway copy!) under OVMF+KVM
 #   2. type the LUKS passphrase at dracut's prompt (~15s in; it never times out)
 #   3. wait for the SSH port, log in as root on tty1
-#   4. inject test/ssh-key.pub via tee, verify ssh works
+#   4. inject test/tmp/ssh-key.pub via tee, verify ssh works
 set -Eeuo pipefail
 
 [[ $# -eq 1 ]] || { echo "usage: $0 DISK" >&2; exit 2; }
@@ -23,7 +23,10 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 CODE=$(mktemp /tmp/test-tool-spin-up-code.XXXX.fd)
 VARS=$(mktemp /tmp/test-tool-spin-up-vars.XXXX.fd)
 OVMF=${OVMF:-/usr/share/edk2/ovmf}
-[[ -f test/ssh-key ]] || ssh-keygen -t ed25519 -N '' -C tool-spin-up -f test/ssh-key -q
+[[ -f test/tmp/ssh-key ]] || {
+  mkdir -p test/tmp
+  ssh-keygen -t ed25519 -N '' -C tool-spin-up -f test/tmp/ssh-key -q
+}
 trap 'rm -f "$CODE" "$VARS"; [[ -n ${QEMU_PID:-} ]] && kill "$QEMU_PID" 2>/dev/null' EXIT
 
 cp "$OVMF/OVMF_CODE.fd" "$CODE"
@@ -106,7 +109,7 @@ sleep 1
 echo 'configuring SSH...'
 typeline 'mkdir -p /root/.ssh'
 typeline 'tee /root/.ssh/authorized_keys'
-{ sendchars "ssh-ed25519 $(cut -d' ' -f2 test/ssh-key.pub)"; echo 'sendkey ret'; } \
+{ sendchars "ssh-ed25519 $(cut -d' ' -f2 test/tmp/ssh-key.pub)"; echo 'sendkey ret'; } \
   | nc -w3 localhost "$MON" >/dev/null
 sleep 0.25
 mon 'sendkey ctrl-d'

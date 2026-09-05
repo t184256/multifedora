@@ -1,9 +1,2 @@
-fedora.iso
-example.img
-example.ks.img
-example-fedora-ESP.tar
-example-fedora-boot.tar
-example-fedora-root.btrfs
+test/tmp/
 result
-test/ssh-key
-test/ssh-key.pub

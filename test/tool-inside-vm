@@ -4,6 +4,6 @@ set -Eeuo pipefail
 
 SSHPORT=${SSHPORT:-2234}
 
-ssh -i test/ssh-key -p "$SSHPORT" \
+ssh -i test/tmp/ssh-key -p "$SSHPORT" \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     root@127.0.0.1 "$@"
