@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Spin up an installed Fedora image.
 # If an optional COMMAND is passed, run it inside the VM over SSH
-# instead of leaving the VM running.
-# If SHARE_DIR is set, that host directory is mounted at /share
+# and power off afterwards.
+# If SHARE_DIR is set, that host directory is mounted at /share.
+# If BACKGROUND_PIDFILE is set, exit 0 as soon as SSH is up, leaving the VM
+# running and writing its pid to that file. Kill or poweroff it yourself then.
 set -Eeuo pipefail
 
 [[ $# -ge 1 ]] || { echo "usage: $0 DISK [COMMAND...]" >&2; exit 2; }
@@ -14,8 +16,13 @@ CPU_CORES=${CPU_CORES:-2}
 RAM_GB=${RAM_GB:-4}
 DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging
 MON=${MON:-4547}
+BACKGROUND_PIDFILE=${BACKGROUND_PIDFILE:-}
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+if [[ -n $BACKGROUND_PIDFILE ]] && (( ${#COMMAND[@]} )); then
+  die 'BACKGROUND_PIDFILE and COMMAND are mutually exclusive'
+fi
 
 # throwaway OVMF copies
 CODE=$(mktemp /tmp/test-tool-spin-up-code.XXXX.fd)
@@ -76,7 +83,7 @@ qemu-system-x86_64 \
 QEMU_PID=$!
 sleep 1
 kill -0 "$QEMU_PID" 2>/dev/null || die "qemu died at startup"
-echo "qemu up (pid $QEMU_PID), monitor on $MON, try SSH'ing in in ~a minute..."
+echo "qemu up (pid $QEMU_PID), monitor on $MON, waiting for SSH to go up..."
 
 if (( ${GRUB_DOWN_COUNT:-0} )); then
   sleep 3
@@ -100,6 +107,13 @@ fi
 if [[ -n ${SHARE_DIR:-} ]]; then
   "$D/tool-inside-vm" 'modprobe 9p; mount --mkdir -t 9p virtio /share' \
     || die 'failed to mount the 9p share'
+fi
+
+if [[ -n $BACKGROUND_PIDFILE ]]; then
+  echo "$QEMU_PID" > "$BACKGROUND_PIDFILE"
+  trap 'rm -f "$CODE" "$VARS"' EXIT  # leave qemu running
+  echo "qemu (pid $QEMU_PID) left running, pid in $BACKGROUND_PIDFILE"
+  exit 0
 fi
 
 if (( ${#COMMAND[@]} )); then
