@@ -1,6 +1,6 @@
 # This is for running the examples, basically
 
-ISO_URL ?= https://dl.fedoraproject.org/pub/fedora/linux/releases/44/$\
+ISO_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/44/$\
     Server/x86_64/iso/Fedora-Server-dvd-x86_64-44-1.7.iso
 LUKS_PASS ?= example
 
