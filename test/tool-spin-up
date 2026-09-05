@@ -7,6 +7,7 @@
 #   4. inject test/tmp/ssh-key.pub via tee, verify ssh works
 # If an optional COMMAND is passed, run it inside the VM over SSH
 # instead of leaving the VM running.
+# If SHARE_DIR is set, that host directory is mounted at /share
 set -Eeuo pipefail
 
 [[ $# -ge 1 ]] || { echo "usage: $0 DISK [COMMAND...]" >&2; exit 2; }
@@ -81,6 +82,14 @@ wait_ssh() {
   die 'ssh port never came up, see /tmp/tool-spin-up-fail.png'
 }
 
+SHARE_ARGS=()
+if [[ -n ${SHARE_DIR:-} ]]; then
+  [[ -d $SHARE_DIR ]] || die "SHARE_DIR=$SHARE_DIR is not a directory"
+  # shellcheck disable=SC2054  # -fsdev takes one comma-separated string
+  SHARE_ARGS=(-fsdev "local,id=share,path=$SHARE_DIR,security_model=none" \
+              -device virtio-9p-pci,fsdev=share,mount_tag=virtio)
+fi
+
 qemu-system-x86_64 \
   -monitor "tcp:localhost:$MON,server,nowait" \
   -machine q35 -cpu host -enable-kvm \
@@ -91,6 +100,7 @@ qemu-system-x86_64 \
   -display "$DISP" \
   -netdev "user,id=n,hostfwd=tcp:127.0.0.1:$SSHPORT-:22" \
   -device virtio-net-pci,netdev=n \
+  "${SHARE_ARGS[@]}" \
   -drive file="$SRC",if=virtio,format=raw \
   -no-reboot &
 QEMU_PID=$!
@@ -125,6 +135,11 @@ if ! test/tool-inside-vm 'echo "SSH works, use ./test/tool-inside-vm"'; then
   mon 'screendump /tmp/tool-spin-up-fail.png -f png'
   kill "$QEMU_PID" 2>/dev/null
   die 'SSH never went up, see /tmp/tool-spin-up-fail.png'
+fi
+
+if [[ -n ${SHARE_DIR:-} ]]; then
+  test/tool-inside-vm 'modprobe 9p; mount --mkdir -t 9p virtio /share' \
+    || die 'failed to mount the 9p share'
 fi
 
 if (( ${#COMMAND[@]} )); then
