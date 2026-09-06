@@ -12,6 +12,8 @@ rm -rf "$SHARE"
 mkdir -p "$SHARE"
 cp tool-install "$SHARE/"
 cp --reflink=always tmp/fedora.iso "$SHARE/"
+mkdir -p "$SHARE/tmp"
+cp tmp/ssh-key tmp/ssh-key.pub "$SHARE/tmp/"
 
 cp --sparse=always tmp/01/initial.img tmp/02/tmp.img
 trap 'rm -f tmp/02/tmp.img' EXIT
