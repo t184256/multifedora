@@ -71,6 +71,12 @@ install -d /etc/dracut.conf.d
 echo 'install_optional_items+=" /etc/luks-key "' \
     > /etc/dracut.conf.d/99lukskey.conf
 dracut --force
+# testing subvolumes, to check how they get extracted and injected
+btrfs subvolume create /var/lib/test-subvol
+date > /var/lib/test-subvol/stamp
+btrfs subvolume create /var/lib/test-subvol/nested
+LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 4 \
+    > /var/lib/test-subvol/nested/random
 %end
 
 poweroff
