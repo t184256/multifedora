@@ -77,6 +77,11 @@ date > /var/lib/test-subvol/stamp
 btrfs subvolume create /var/lib/test-subvol/nested
 LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 4 \
     > /var/lib/test-subvol/nested/random
+# a nested read-only one: the stream does not carry the ro flag, so
+# the manifest must, and this is what exercises that
+btrfs subvolume create /var/lib/test-subvol/ro-nested
+echo ro > /var/lib/test-subvol/ro-nested/marker
+btrfs property set /var/lib/test-subvol/ro-nested ro true
 %end
 
 poweroff
