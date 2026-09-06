@@ -21,7 +21,7 @@ tmp/02/second.img: tmp/01/initial.img tmp/fedora.iso
 tmp/02/second.img: 02-install-second tool-install
 	./02-install-second
 
-$(EXTRCD) &: tmp/02/second.img 03-extract-second ../fedora-extract
+$(EXTRCD) &: tmp/02/second.img 03-extract-second ../multifedora-extract
 	./03-extract-second
 
 
