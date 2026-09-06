@@ -20,6 +20,11 @@ BACKGROUND_PIDFILE=${BACKGROUND_PIDFILE:-}
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+if (exec 3<>"/dev/tcp/127.0.0.1/$MON") 2>/dev/null; then
+  exec 3>&-
+  die "monitor port $MON is busy, wait for the previous QEMU to exit first"
+fi
+
 if [[ -n $BACKGROUND_PIDFILE ]] && (( ${#COMMAND[@]} )); then
   die 'BACKGROUND_PIDFILE and COMMAND are mutually exclusive'
 fi
