@@ -1,0 +1,19 @@
+[Unit]
+Description=Yield the running system to the primed one, if any
+DefaultDependencies=no
+# After the root has been remounted read-only, before the final unmounting:
+# all services are stopped and nothing accesses the volume, so yielding is safe.
+# Everything we need to write goes through our own rw mounts of the subvolid=0,
+# /boot and the ESP; the ro root itself is never touched.
+After=systemd-remount-fs.service
+Before=umount.target
+ConditionPathExists=!/.real-boot
+
+[Service]
+Type=oneshot
+StandardOutput=append:/run/multifedora-yield.log
+StandardError=inherit
+ExecStart=/usr/libexec/multifedora/multifedora-yield
+
+[Install]
+WantedBy=shutdown.target

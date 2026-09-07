@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Stage 09: a second yield, with a stashed system already present.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/08/yielded.img ]] || die "no tmp/08/yielded.img; run stage 08 first"
+for f in tmp/03/second.esp.tar tmp/03/second.boot.tar \
+         tmp/03/second.rootfs tmp/03/second.rootfs.manifest; do
+  [[ -f $f ]] || die "no $f; run stage 03 first"
+done
+
+mkdir -p tmp/09
+WORK=tmp/09/tmp.img
+cp --sparse=always tmp/08/yielded.img "$WORK"
+SHARE=tmp/09/share
+rm -rf "$SHARE"
+mkdir -p "$SHARE"
+cp ../multifedora-esp-menu ../multifedora-inject \
+   ../multifedora-reseat ../multifedora-yield \
+   ../multifedora-yield.service ../multifedora-prime-yield \
+   tmp/03/second.esp.tar tmp/03/second.boot.tar \
+   tmp/03/second.rootfs tmp/03/second.rootfs.manifest \
+   "$SHARE/"
+cat > "$SHARE/run.sh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd /share
+install -d /usr/libexec/multifedora
+install -m755 multifedora-yield \
+  multifedora-reseat multifedora-esp-menu multifedora-inject \
+  multifedora-prime-yield /usr/libexec/multifedora/
+# the shutdown unit (the package installs it on a real system)
+install -m644 multifedora-yield.service /etc/systemd/system/
+systemctl daemon-reload
+export PATH=/usr/libexec/multifedora:"$PATH"
+multifedora-prime-yield second \
+  /share/second.esp.tar /share/second.boot.tar /share/second.rootfs \
+  /share/second.rootfs.manifest
+# identity markers: this (running) system, and the primed one
+echo middle-primary > /etc/multifedora-marker
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')
+M=$(mktemp -d)
+mount -o subvol=multifedora/.next "$BDEV" "$M"
+echo new-primary-2 > "$M/subvols/root/etc/multifedora-marker"
+umount "$M"
+EOF
+chmod +x "$SHARE/run.sh"
+
+# the second yield happens during this poweroff
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
+
+# default boot is the new primary; ESP now lists three entries and
+# both stashed systems are in place
+# shellcheck disable=SC2016  # expands in the VM
+./tool-spin-up "$WORK" \
+  'rc=0
+   test "$(cat /etc/multifedora-marker)" = new-primary-2 || rc=1
+   grep -q "rootflags=subvol=root" /proc/cmdline || rc=1
+   ! grep -q "\.real-boot" /etc/fstab || rc=1
+   [[ $(grep -c menuentry /boot/efi/EFI/BOOT/grub.cfg) == 3 ]] || rc=1
+   # the top level, seen through a temporary mount: both stashed systems
+   T=$(mktemp -d)
+   mount -o subvolid=5 "$(findmnt -no SOURCE -T / | sed "s/\[.*\]//")" "$T" \
+     || rc=1
+   tsl=$(btrfs subvolume list "$T" 2>/dev/null)
+   umount "$T" 2>/dev/null
+   grep -q " multifedora/example/root$" <<<"$tsl" || rc=1
+   grep -q " multifedora/second/root$" <<<"$tsl" || rc=1
+   [[ $rc -eq 0 ]] && echo YIELD2-OK
+   exit $rc'
+
+# the long-stashed first system (ESP entry 2, glob order)
+# shellcheck disable=SC2016  # expands in the VM
+GRUB_DOWN_COUNT=1 ./tool-spin-up "$WORK" \
+  'rc=0
+   test "$(cat /etc/multifedora-marker)" = old-primary || rc=1
+   grep -q "rootflags=subvol=multifedora/example/root" /proc/cmdline \
+     || rc=1
+   [[ $rc -eq 0 ]] && echo STASHED-EXAMPLE-OK
+   exit $rc'
+
+# the first primed system, stashed by the second yield (ESP entry 3)
+# shellcheck disable=SC2016  # expands in the VM
+GRUB_DOWN_COUNT=2 ./tool-spin-up "$WORK" \
+  'rc=0
+   test "$(cat /etc/multifedora-marker)" = middle-primary || rc=1
+   grep -q "rootflags=subvol=multifedora/second/root" /proc/cmdline \
+     || rc=1
+   [[ $rc -eq 0 ]] && echo STASHED-SECOND-OK
+   exit $rc'
+
+touch tmp/09/ok

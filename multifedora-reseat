@@ -6,9 +6,9 @@
 #   namespace its kernel/initrd paths under /boot/multifedora/NAME
 #   and its subvolumes under multifedora/NAME,
 #   give it a private /boot (a bind mount of that directory) and a read-only ESP
-# * rebuild initramfs if needed (right after the crypttab re-point,
-#   before BLS's rd.luks.uuid changes, so a re-run after a mid-way
-#   death redoes the rebuild instead of skipping it)
+# * rebuild initramfs if needed
+#   (right after the crypttab re-point, before BLS's rd.luks.uuid changes;
+#   if we die mid-way, a re-run redoes the rebuild instead of skipping it)
 # Re-seats the top-level system if no secondary name is supplied.
 # usage: $0 [SECONDARY_NAME]
 
@@ -27,16 +27,16 @@ S0=''
 cleanup() {
   local m
   for m in "${extra_mounts[@]}"; do
-    umount "$m" 2>/dev/null || true
+    umount "$m" || { echo "ERROR: cannot unmount $m" >&2; exit 1; }
   done
   if [[ -n $S0 ]]; then
-    umount "$S0" 2>/dev/null || true
-    rm -rf "$S0"
+    umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+    rm -d "$S0"
   fi
 }
 trap cleanup EXIT
 
-if [[ -n $NAME ]]; then  # mount subvolid=0, figure out BOOT/ROOT
+if [[ -n $NAME ]]; then  # mount the top level, figure out BOOT/ROOT
   BOOT="/boot/multifedora/$NAME"
   # go at great lengths to not simply hardcode ROOT=$S0/multifedora/$NAME/root:
   BDEV=$(findmnt -no SOURCE / | sed 's/\[.*\]//')  # strip [subvol=...]
@@ -64,8 +64,8 @@ for e in "$BOOT"/loader/entries/*.conf; do
   break
 done
 OLD_BTRFS=$(sed -n 's/^options.*root=UUID=\([^ ]*\).*/\1/p' "$first_entry")
-# a malformed or missing value would make the file-wide substitution
-# below run with an empty pattern and corrupt fstab
+# a malformed or missing value would make the substitution below
+# run with an empty pattern and corrupt fstab
 [[ ${#OLD_BTRFS} -eq 36 ]] || {
   echo "ERROR: could not read a root uuid from the BLS entry" >&2
   exit 1
@@ -76,13 +76,15 @@ if [[ -z $OLD_LUKS && -f $ROOT/etc/crypttab ]]; then
   OLD_LUKS=$(sed -n 's|^[^ ]* UUID=\([^ ]*\).*|\1|p' \
     "$ROOT/etc/crypttab" | head -1)
 fi
-OLD_BOOT=$(sed -nE 's/.*--set=root (UUID=)?([^ ]*).*/\2/p' "$BOOT/grub2/grub.cfg")
+OLD_BOOT=$(sed -nE 's/.*--set=root (UUID=)?([^ ]*).*/\2/p' \
+  "$BOOT/grub2/grub.cfg")
 
 # get the desired values to reseat to
 BTRFS_UUID=$(findmnt -no UUID /)  # internal btrfs uuid
 # -T: $BOOT is a directory inside the /boot mount, not a mount point
-BOOT_UUID=$(findmnt -no UUID -T "$BOOT")  # /boot partition
-ESP_UUID=$(findmnt -no UUID /boot/efi)  # vfat ESP
+# the chrooted case (multifedora-prime-yield) cannot see the host's mounts
+BOOT_UUID=${MULTIFEDORA_BOOT_UUID:-$(findmnt -no UUID -T "$BOOT")}
+ESP_UUID=${MULTIFEDORA_ESP_UUID:-$(findmnt -no UUID /boot/efi)}
 ROOT_SRC=$(findmnt -no SOURCE / | sed 's/\[.*\]//')
 case $ROOT_SRC in
   /dev/mapper/luks-*) LUKS_UUID=${ROOT_SRC#/dev/mapper/luks-} ;;
@@ -130,8 +132,8 @@ fi
 # rebuild the initramfs if the LUKS identity changed
 if [[ $rebuild_initramfs -eq 1 ]]; then
   echo "multifedora-reseat: rebuilding the initramfs"
-  # dracut's hostonly filter drops crypttab entries whose device it cannot
-  # match against a LUKS device inside the chroot; 'force' keeps ours
+  # dracut's hostonly filter drops any crypttab entry whose device it
+  # cannot match to a LUKS device in the chroot; 'force' keeps ours
   if ! grep "^luks-$LUKS_UUID " "$ROOT/etc/crypttab" | grep -q 'force$'; then
     sed -i "/^luks-$LUKS_UUID / s/ \([^ ]*\)$/ \1,force/" \
       "$ROOT/etc/crypttab"
@@ -238,7 +240,8 @@ grub_points_here() {
   if grep -q 'rd\.luks\.key=' "$BOOT/grub2/grub.cfg"; then
     grep -q "rd\.luks\.key=$LUKS_UUID=" "$BOOT/grub2/grub.cfg" || return 1
     grep -q 'rd\.luks\.key=[^ :]*:UUID=' "$BOOT/grub2/grub.cfg" \
-      && ! grep -q "rd\.luks\.key=[^ :]*:UUID=$BOOT_UUID" "$BOOT/grub2/grub.cfg" \
+      && ! grep -q "rd\.luks\.key=[^ :]*:UUID=$BOOT_UUID" \
+        "$BOOT/grub2/grub.cfg" \
       && return 1
   fi
   return 0

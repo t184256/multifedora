@@ -42,8 +42,11 @@
         cp ${./multifedora-inject} $out/multifedora-inject
         cp ${./multifedora-esp-menu} $out/multifedora-esp-menu
         cp ${./multifedora-new-secondary} $out/multifedora-new-secondary
+        cp ${./multifedora-prime-yield} $out/multifedora-prime-yield
         cp ${./multifedora-remove} $out/multifedora-remove
         cp ${./multifedora-reseat} $out/multifedora-reseat
+        cp ${./multifedora-yield} $out/multifedora-yield
+        cp ${./multifedora-yield.service} $out/multifedora-yield.service
       '';
 
       multifedoraRpm = pkgs.runCommand "multifedora-0.1" {
@@ -55,6 +58,7 @@
         rpmbuild --nodeps \
           --define "srcdir ${multifedoraScripts}" \
           --define "_prefix /usr" --define "_topdir $TOPDIR" \
+          --define "_unitdir /usr/lib/systemd/system" \
           --define "_tmppath $TOPDIR/tmp" --define "_dbpath $TOPDIR/db" \
           -bb $TOPDIR/SPECS/multifedora.spec
         mkdir -p $out

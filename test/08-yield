@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Stage 08: test the yield mechanism.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/01/initial.img ]] || die "no tmp/01/initial.img; run stage 01 first"
+for f in tmp/03/second.esp.tar tmp/03/second.boot.tar \
+         tmp/03/second.rootfs tmp/03/second.rootfs.manifest; do
+  [[ -f $f ]] || die "no $f; run stage 03 first"
+done
+
+mkdir -p tmp/08
+# renamed on completion, so the target exists only on success (a failed
+# run leaves tmp.img behind and make re-runs)
+WORK=tmp/08/tmp.img
+cp --sparse=always tmp/01/initial.img "$WORK"
+SHARE=tmp/08/share
+rm -rf "$SHARE"
+mkdir -p "$SHARE"
+cp ../multifedora-esp-menu ../multifedora-inject \
+   ../multifedora-reseat ../multifedora-yield \
+   ../multifedora-yield.service ../multifedora-prime-yield \
+   tmp/03/second.esp.tar tmp/03/second.boot.tar \
+   tmp/03/second.rootfs tmp/03/second.rootfs.manifest \
+   "$SHARE/"
+cat > "$SHARE/run.sh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd /share
+install -d /usr/libexec/multifedora
+install -m755 multifedora-yield \
+  multifedora-reseat multifedora-esp-menu multifedora-inject \
+  multifedora-prime-yield /usr/libexec/multifedora/
+# the shutdown unit (the package installs it on a real system)
+install -m644 multifedora-yield.service /etc/systemd/system/
+systemctl daemon-reload
+export PATH=/usr/libexec/multifedora:"$PATH"
+multifedora-prime-yield example \
+  /share/second.esp.tar /share/second.boot.tar /share/second.rootfs \
+  /share/second.rootfs.manifest
+# identity markers: this (running) system, and the primed one (its root
+# subvolume, reached through a temporary mount of the staging area)
+echo old-primary > /etc/multifedora-marker
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')
+M=$(mktemp -d)
+mount -o subvol=multifedora/.next "$BDEV" "$M"
+echo new-primary > "$M/subvols/root/etc/multifedora-marker"
+umount "$M"
+EOF
+chmod +x "$SHARE/run.sh"
+
+# the yield happens during this poweroff
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
+
+# default boot should now be the primed system, oblivious to
+# multifedora/: normal root subvolume, no /.real-boot, and the ESP
+# menu lists two entries. The fixture subvolumes ride along under
+# root, with their nesting and ro flag intact.
+# shellcheck disable=SC2016  # expands in the VM
+./tool-spin-up "$WORK" \
+  'rc=0
+   test "$(cat /etc/multifedora-marker)" = new-primary || rc=1
+   grep -q "rootflags=subvol=root" /proc/cmdline || rc=1
+   ! grep -q "\.real-boot" /etc/fstab || rc=1
+   [[ $(grep -c menuentry /boot/efi/EFI/BOOT/grub.cfg) == 2 ]] || rc=1
+   sl=$(btrfs subvolume list /)
+   grep -q " var/lib/test-subvol$" <<<"$sl" || rc=1
+   grep -q " var/lib/test-subvol/nested$" <<<"$sl" || rc=1
+   grep -q " var/lib/test-subvol/ro-nested$" <<<"$sl" || rc=1
+   [[ $(btrfs property get /var/lib/test-subvol/ro-nested ro) == *true* ]] \
+     || rc=1
+   # the top level, seen through a temporary mount: the stashed system
+   # subvolumes must be under multifedora/example/
+   T=$(mktemp -d)
+   mount -o subvolid=5 "$(findmnt -no SOURCE -T / | sed "s/\[.*\]//")" "$T" \
+     || rc=1
+   tsl=$(btrfs subvolume list "$T" 2>/dev/null)
+   umount "$T" 2>/dev/null
+   grep -q " multifedora/example/root$" <<<"$tsl" || rc=1
+   grep -q " multifedora/example/home$" <<<"$tsl" || rc=1
+   [[ $rc -eq 0 ]] && echo YIELD-OK
+   exit $rc'
+
+# the stashed first system, selected from the ESP menu: it boots
+# from its multifedora location with a private /boot bind
+# shellcheck disable=SC2016  # expands in the VM
+GRUB_DOWN_COUNT=1 ./tool-spin-up "$WORK" \
+  'rc=0
+   test "$(cat /etc/multifedora-marker)" = old-primary || rc=1
+   grep -q "rootflags=subvol=multifedora/example/root" /proc/cmdline \
+     || rc=1
+   grep -q "\.real-boot/multifedora/example /boot none bind" \
+     /etc/fstab || rc=1
+   ls /boot/vmlinuz-* >/dev/null || rc=1
+   [[ $rc -eq 0 ]] && echo STASHED-OK
+   exit $rc'
+
+mv "$WORK" tmp/08/yielded.img

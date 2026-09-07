@@ -4,8 +4,10 @@ EXTRACTED = tmp/03/second.esp.tar tmp/03/second.boot.tar \
 VM_TOOLS = tool-spin-up tool-inside-vm
 .DEFAULT_GOAL := all
 .PHONY: all install-initial install-second extract-second inject-remove \
-        dual-install dual-boot-primary dual-boot-secondary
-all: inject-remove dual-install dual-boot-primary dual-boot-secondary
+        dual-install dual-boot-primary dual-boot-secondary \
+        yield yield-again
+all: inject-remove dual-install dual-boot-primary dual-boot-secondary \
+     yield yield-again
 install-initial: tmp/01/initial.img
 install-second: tmp/02/second.img
 extract-second: $(EXTRACTED)
@@ -13,6 +15,8 @@ inject-remove: tmp/04/ok
 dual-install: tmp/05/dual.img
 dual-boot-primary: tmp/06/ok
 dual-boot-secondary: tmp/07/ok
+yield: tmp/08/yielded.img
+yield-again: tmp/09/ok
 
 ISO_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/44/$\
     Server/x86_64/iso/Fedora-Server-dvd-x86_64-44-1.7.iso
@@ -56,9 +60,23 @@ tmp/07/ok: tmp/05/dual.img 07-dual-boot-secondary
 tmp/07/ok: $(VM_TOOLS)
 	./07-dual-boot-secondary
 
+tmp/08/yielded.img: tmp/01/initial.img $(EXTRACTED) 08-yield
+tmp/08/yielded.img: ../multifedora-prime-yield ../multifedora-inject
+tmp/08/yielded.img: ../multifedora-reseat ../multifedora-esp-menu
+tmp/08/yielded.img: ../multifedora-yield ../multifedora-yield.service
+tmp/08/yielded.img: $(VM_TOOLS)
+	./08-yield
+
+tmp/09/ok: tmp/08/yielded.img 09-yield-again
+tmp/09/ok: ../multifedora-prime-yield ../multifedora-inject
+tmp/09/ok: ../multifedora-reseat ../multifedora-esp-menu
+tmp/09/ok: ../multifedora-yield ../multifedora-yield.service
+tmp/09/ok: $(EXTRACTED) $(VM_TOOLS)
+	./09-yield-again
+
 .PHONY: clean deepclean
 clean:
-	rm -rf tmp/01 tmp/02 tmp/03 tmp/04 tmp/05 tmp/06 tmp/07
+	rm -rf tmp/01 tmp/02 tmp/03 tmp/04 tmp/05 tmp/06 tmp/07 tmp/08 tmp/09
 
 deepclean: clean
 	rm -rf tmp

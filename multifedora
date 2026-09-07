@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # multifedora: manage secondary systems under multifedora/.
-# usage: $0 add SECONDARY_NAME IMAGE   install a system from a disk image
-#        $0 remove SECONDARY           delete a system and free its space
+# usage: $0 add SECONDARY_NAME IMAGE    install a system from a disk image
+#        $0 remove SECONDARY            delete a system and free its space
+#        $0 prime-pivot OLD_NAME IMAGE  at the next shutdown, make the
+#                                       image the primary system and
+#                                       stash the running one as OLD_NAME
 
 set -Eeuo pipefail
 
@@ -9,7 +12,13 @@ set -Eeuo pipefail
 DIR=$(dirname "$(readlink -f "$0")")
 # the helpers call each other by bare name
 export PATH="$DIR:$PATH"
-USAGE="usage: $0 add SECONDARY_NAME IMAGE | remove SECONDARY"
+USAGE="usage: $0 COMMAND
+
+  add SECONDARY_NAME IMAGE    install a system from a disk image
+  remove SECONDARY            delete a system and free its space
+  prime-pivot OLD_NAME IMAGE  at the next shutdown, make the image
+                              the primary system and stash the running
+                              one as OLD_NAME"
 
 [[ $# -ge 1 ]] || { echo "$USAGE" >&2; exit 2; }
 
@@ -36,6 +45,24 @@ add)
 remove)
   [[ $# -eq 2 ]] || { echo "usage: $0 remove SECONDARY" >&2; exit 2; }
   "$DIR/multifedora-remove" "$2"
+  ;;
+prime-pivot)
+  [[ $# -eq 3 ]] || { echo "usage: $0 prime-pivot OLD_NAME IMAGE" >&2; exit 2; }
+  NAME=$2
+  IMAGE=$3
+  [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
+
+  if [[ -z "$LUKS_PASSPHRASE" ]]; then
+    read -rs -p "LUKS passphrase for $IMAGE: " LUKS_PASSPHRASE
+    echo
+  fi
+
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' EXIT
+  "$DIR/multifedora-extract" "$IMAGE" "$LUKS_PASSPHRASE" \
+    "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
+  "$DIR/multifedora-prime-yield" "$NAME" \
+    "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs" "$TMP/rootfs.manifest"
   ;;
 *)
   echo "$USAGE" >&2

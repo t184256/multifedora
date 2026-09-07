@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Remove a multifedora/NAME system: its subvolumes, its boot tree under
-# /boot/multifedora/, and its tier-1 menu entry. Frees the space.
+# Remove a multifedora/NAME system: its subvolumes, its boot tree,
+# under /boot/multifedora/, and its tier-1 menu entry. Frees the space.
 # usage: $0 NAME
 
 set -Eeuo pipefail
@@ -17,7 +17,11 @@ NAME=$1
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
 mount -o subvolid=5 "$BDEV" "$S0"
-trap 'umount "$S0" 2>/dev/null || true; rm -rf "$S0"' EXIT
+cleanup() {
+  umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  rm -d "$S0"
+}
+trap cleanup EXIT
 MULTI=$S0/multifedora
 
 [[ -d $MULTI/$NAME ]] || {
@@ -30,7 +34,11 @@ for sv in $(btrfs subvolume list "$S0" | \
             grep -E " path multifedora/$NAME/[^/ ]+$" | sed 's/.*path //'); do
   btrfs subvolume delete -R "$S0/$sv"
 done
-rmdir "$MULTI/$NAME"
-rm -rf "/boot/multifedora/$NAME"
+rm -d "$MULTI/$NAME"
+# the boot tree of the removed system (a plain directory on /boot);
+# it may be absent if the system was injected but never fully installed
+if [[ -d /boot/multifedora/$NAME ]]; then
+  rm -r "/boot/multifedora/$NAME"
+fi
 multifedora-esp-menu
 echo "removed multifedora/$NAME"

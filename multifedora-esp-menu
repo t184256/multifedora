@@ -17,8 +17,8 @@ BOOT_DIR=${2:-/boot}
 if [[ $# -ge 3 ]]; then
   BOOT_UUID=$3
 else
-  # -T (not a bare path): BOOT_DIR may be a directory inside the /boot
-  # mount, not a mount point itself (e.g. /boot/multifedora/NAME)
+  # -T (not a bare path): BOOT_DIR may live inside the /boot mount
+  # without being a mount point itself (e.g. /boot/multifedora/NAME)
   BOOT_UUID=$(findmnt -no UUID -T "$BOOT_DIR")
 fi
 

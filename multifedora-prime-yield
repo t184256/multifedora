@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Prime a yield: stage the given system images under multifedora/.next
+# and make sure the multifedora-yield unit runs at the next shutdown,
+# stashing this system as OLD_NAME and putting the primed one in its place.
+# usage: $0 OLD_NAME ESP BOOT STREAM MANIFEST
+
+set -Eeuo pipefail
+
+if [[ $# -ne 5 ]]; then
+  echo "usage: $0 OLD_NAME ESP BOOT STREAM MANIFEST" >&2
+  exit 2
+fi
+
+command -v btrfs mount mountpoint findmnt tar ln mv systemctl basename \
+           sed cp chmod chroot readlink dirname >/dev/null
+
+OLD_NAME=$1
+ESP=$2
+BOOT=$3
+STREAM=$4
+MANIFEST=$5
+for f in "$ESP" "$BOOT" "$STREAM" "$MANIFEST"; do
+  [[ -f $f ]] || { echo "ERROR: no such file: $f" >&2; exit 1; }
+done
+[[ -e /boot/multifedora/$OLD_NAME ]] && {
+  echo "ERROR: /boot/multifedora/$OLD_NAME already exists" >&2
+  exit 1
+}
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+MNT=''
+mount -o subvolid=5 "$BDEV" "$S0"
+cleanup() {
+  local m
+  if [[ -n $MNT ]]; then
+    rm -f "$MNT/tmp/multifedora-reseat" 2>/dev/null || true
+    for m in run sys proc dev boot; do
+      if mountpoint -q "$MNT/$m"; then
+        umount "$MNT/$m" \
+          || { echo "ERROR: cannot unmount $MNT/$m" >&2; exit 1; }
+      fi
+    done
+    if mountpoint -q "$MNT"; then
+      umount "$MNT" || { echo "ERROR: cannot unmount $MNT" >&2; exit 1; }
+    fi
+    rm -d "$MNT"
+  fi
+  umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  rm -d "$S0"
+}
+trap cleanup EXIT
+MULTI=$S0/multifedora
+[[ -d $MULTI ]] || btrfs subvolume create "$MULTI"
+
+# (re)build the staging area
+NEXT=$MULTI/.next
+[[ -e $NEXT ]] && btrfs subvolume delete -R "$NEXT"
+btrfs subvolume create "$NEXT"
+cp "$ESP" "$NEXT/"
+mkdir "$NEXT/subvols"
+multifedora-inject "$STREAM" "$MANIFEST" "$NEXT/subvols"
+
+# seat the primed system on this disk right now, while a live system is around
+# to do the work: mount its root and boot tree, and run reseat in a chroot
+# so it re-points crypttab/fstab/BLS/grub.cfg at this disk's identity
+# and rebuilds the initramfs.
+BOOTDIR=$NEXT/boot
+mkdir "$BOOTDIR"
+tar xf "$BOOT" --exclude=./efi -C "$BOOTDIR"
+ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
+  "$BOOTDIR"/loader/entries/*.conf | head -1)
+[[ -n $ROOTSV ]] || {
+  echo "ERROR: no root subvolume named in the BLS entries" >&2
+  exit 1
+}
+MNT=$(mktemp -d /run/mf-next.XXXXXX)
+mount -o subvol=multifedora/.next/subvols/"$ROOTSV" "$BDEV" "$MNT"
+mount --bind "$BOOTDIR" "$MNT/boot"
+# a chrooted process only sees mounts under its new root
+# bring in the host's so findmnt and dracut see this machine (and this disk)
+for d in dev proc sys run; do
+  mount --bind "/$d" "$MNT/$d"
+done
+cp "$(dirname "$(readlink -f "$0")")/multifedora-reseat" \
+  "$MNT/tmp/multifedora-reseat"
+chmod 755 "$MNT/tmp/multifedora-reseat"
+# the host's /boot and ESP mounts are not visible in the chroot
+# pass their UUIDs in (reseat autodetects them in the normal case)
+MULTIFEDORA_BOOT_UUID=$(findmnt -no UUID /boot)
+MULTIFEDORA_ESP_UUID=$(findmnt -no UUID /boot/efi)
+export MULTIFEDORA_BOOT_UUID MULTIFEDORA_ESP_UUID
+chroot "$MNT" /tmp/multifedora-reseat
+# $BOOTDIR (now re-pointed) stays in place; the yield copies it into /boot,
+# and deletes all of $NEXT with the rest of the staging area
+
+# publish it atomically: the name first, then the link that triggers
+echo "$OLD_NAME" > "$MULTI/.next-yield-name.tmp"
+mv -f -T "$MULTI/.next-yield-name.tmp" "$MULTI/.next-yield-name"
+ln -sf .next "$MULTI/.next-yield-this.tmp"
+mv -f -T "$MULTI/.next-yield-this.tmp" "$MULTI/.next-yield-this"
+
+# the actual yield runs at shutdown via a unit, which the package installs
+# enable it so that it fires on the next shutdown
+systemctl enable multifedora-yield.service
+
+echo "primed; the yield happens at the next shutdown"
+echo "current system will become $OLD_NAME"

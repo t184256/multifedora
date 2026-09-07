@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Yield the running system to the primed one, at shutdown.
+#
+# Runs as the last thing possible on shutdown via multifedora-yield.service.
+# If multifedora/.next-yield-this exists on the root btrfs volume, stash
+# the running system under multifedora/$NAME and put the primed system
+# in its place, so that afterwards:
+# * the primed system boots by default, from / and /boot as usual
+# * the stashed one is a tier-1 menu entry; its kernels come from
+#   /boot/multifedora/$NAME/ and its subvolumes from multifedora/$NAME/...
+
+set -Eeuo pipefail
+
+# the unit starts us with a bare PATH; our sibling tools live next to us
+DIR=$(dirname "$(readlink -f "$0")")
+export PATH="$DIR:$PATH"
+
+command -v btrfs findmnt mountpoint tar cp sed basename unshare mount \
+  readlink cut >/dev/null
+
+# run in a private mount namespace: systemd (in the root namespace)
+# creates implicit .mount units for mounts made with mount(8),
+# and it tears them down during the shutdown unfolding around us;
+# make-rprivate keeps our mounts from propagating either way
+if [[ -z ${MULTIFEDORA_YIELD_NS:-} ]]; then
+  export MULTIFEDORA_YIELD_NS=1
+  exec unshare -m bash "$0" "$@"
+fi
+mount --make-rprivate /
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+BASE=$(mktemp -d /dev/.mf-yield.XXXXXX)
+S0=$BASE/s0
+mkdir -p "$S0"
+mount -o subvolid=5 "$BDEV" "$S0"
+# the root is read-only by now, so the unit's /run log would be all we had;
+# keep logging on disk through our own rw mount of the top level
+exec >>"$S0/.multifedora-yield.log" 2>&1
+# mount points live on the /dev tmpfs, not a filesystem we touch:
+# during teardown systemd lazily unmounts /tmp;
+# A's own subvolumes get moved out from under any path in them;
+# /dev is unmounted only at umount.target, which we run before.
+cleanup() {
+  exec >>/run/multifedora-yield.log 2>&1 || true
+  umount /boot/efi 2>/dev/null || true
+  umount /boot 2>/dev/null || true
+  umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  rm -d "$S0" "$BASE"
+}
+trap cleanup EXIT
+
+MULTI=$S0/multifedora
+LINK=$MULTI/.next-yield-this
+if [[ ! -L $LINK ]]; then
+  echo 'multifedora-yield: no primed system, nothing to do'
+  exit 0
+fi
+NEXT=$(cd "$MULTI" && readlink -f "$LINK")
+
+# stash name: from the marker file, else hostname (with -2, -3, ...)
+NAME=$(cat "$MULTI/.next-yield-name" 2>/dev/null || hostname)
+for ((i = 2; ; i++)); do
+  [[ -e $MULTI/$NAME ]] || break
+  NAME="$NAME-$i"
+done
+
+echo "multifedora-yield: stashing the running system as multifedora/$NAME"
+
+# stash the running subvolumes (all top-level ones)
+mkdir -p "$MULTI/$NAME"
+while read -r _f1 _id _f2 _gen _f3 _lvl parent _f8 path; do
+  if [[ $parent == 5 && $path != multifedora ]]; then
+    mv "$S0/$path" "$MULTI/$NAME/$path"
+  fi
+done < <(btrfs subvolume list "$S0")
+
+# put the primed subvolumes in place
+for sv in "$NEXT"/subvols/*; do
+  mv "$sv" "$S0/$(basename "$sv")"
+done
+
+# set up our own mounts
+fstab_src() { # $1=mountpoint $2=file
+  local src mp rest
+  while read -r src mp rest; do
+    if [[ $mp == "$1" ]]; then
+      echo "$src"
+      return 0
+    fi
+  done < "$2"
+  return 1
+}
+A_BOOT_UUID=$(fstab_src /boot /etc/fstab | cut -d= -f2)
+A_ESP_UUID=$(fstab_src /boot/efi /etc/fstab | cut -d= -f2)
+mountpoint -q /boot || mount "/dev/disk/by-uuid/$A_BOOT_UUID" /boot
+
+# stash the running /boot contents (except multifedora/ and efi/)
+echo "multifedora-yield: stashing /boot, bringing in the primed boot tree"
+mkdir -p "/boot/multifedora/$NAME"
+find /boot -mindepth 1 -maxdepth 1 ! -name multifedora ! -name efi \
+  -exec mv -t "/boot/multifedora/$NAME/" {} +
+# efi/ may have a mount on top of it
+if [[ -d /boot/efi ]]; then
+  umount /boot/efi 2>/dev/null || true
+  mv /boot/efi "/boot/multifedora/$NAME/" 2>/dev/null \
+    || mkdir -p "/boot/multifedora/$NAME/efi"
+fi
+
+# the primed boot tree is a plain directory (multifedora-prime-yield
+# extracted and seated it there); the only regular file left in $NEXT
+# is the ESP tar
+ESP_TAR=''
+for f in "$NEXT"/*; do
+  if [[ -f $f ]]; then
+    [[ -z $ESP_TAR ]] || {
+      echo "ERROR: multiple files in $NEXT" >&2
+      exit 1
+    }
+    ESP_TAR=$f
+  fi
+done
+[[ -n $ESP_TAR ]] || {
+  echo "ERROR: no ESP tar in $NEXT" >&2
+  exit 1
+}
+
+cp -a "$NEXT/boot/." /boot/
+mkdir -p /boot/efi
+mountpoint -q /boot/efi || mount "/dev/disk/by-uuid/$A_ESP_UUID" /boot/efi
+
+# run reseat (just in case, prime should've done it already)
+echo 'multifedora-yield: seating the stashed system'
+multifedora-reseat "$NAME"
+
+# ESP: the primed one replaces the running one
+echo 'multifedora-yield: installing the primed ESP'
+tar xf "$ESP_TAR" -C /boot/efi
+multifedora-esp-menu
+
+# clear the markers and reclaim the staging area
+rm -f "$LINK" "$MULTI/.next-yield-name"
+btrfs subvolume delete -R "$NEXT"
+echo 'multifedora-yield: done; the primed system will boot next'

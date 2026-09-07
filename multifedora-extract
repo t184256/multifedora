@@ -33,7 +33,7 @@ cleanup() {
   umount "$TMP" 2>/dev/null || true
   cryptsetup close fedroot 2>/dev/null || true
   losetup -d "$LO" 2>/dev/null || true
-  rmdir "$TMP"
+  rm -d "$TMP" 2>/dev/null || true
 }
 trap cleanup EXIT
 

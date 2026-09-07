@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Install a system under multifedora/NAME. It never becomes the primary.
 # The shared ESP and /boot partition stay in place: its boot tree goes to
-# /boot/multifedora/NAME/ and a ESP menu entry is added for it.
+# /boot/multifedora/NAME/ and an ESP menu entry is added for it.
 # ESP stays intact.
 # usage: $0 NAME BOOT STREAM MANIFEST
 
 set -Eeuo pipefail
 
-[[ $# -eq 4 ]] || { echo "usage: $0 NAME BOOT STREAM" >&2; exit 2; }
+[[ $# -eq 4 ]] || { echo "usage: $0 NAME BOOT STREAM MANIFEST" >&2; exit 2; }
 
 NAME=$1
 BOOT_TAR=$2
@@ -23,7 +23,11 @@ done
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
 mount -o subvolid=5 "$BDEV" "$S0"
-trap 'umount "$S0" 2>/dev/null || true; rm -rf "$S0"' EXIT
+cleanup() {
+  umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  rm -d "$S0"
+}
+trap cleanup EXIT
 MULTI=$S0/multifedora
 [[ -d $MULTI ]] || btrfs subvolume create "$MULTI"
 
