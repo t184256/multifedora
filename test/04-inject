@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Stage 04: test multifedora-inject in isolation.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/02/second.img ]] || die "no tmp/02/second.img; run stage 02 first"
+for f in second.rootfs second.rootfs.manifest; do
+  [[ -s tmp/03/$f ]] || die "no tmp/03/$f; run stage 03 first"
+done
+
+WORK=tmp/04/injected.img
+mkdir -p tmp/04
+cp --sparse=always tmp/02/second.img "$WORK"
+
+SHARE=tmp/04/share
+rm -rf "$SHARE"
+mkdir -p "$SHARE"
+cp ../multifedora-inject tmp/03/second.rootfs \
+   tmp/03/second.rootfs.manifest "$SHARE/"
+cat > "$SHARE/run.sh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# mount the btrfs top level and inject into multifedora/example,
+# exactly where a yield or new-secondary would put it
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+mount -o subvolid=5 "$BDEV" "$S0"
+
+[[ -d $S0/multifedora ]] || btrfs subvolume create "$S0/multifedora"
+/share/multifedora-inject /share/second.rootfs \
+  /share/second.rootfs.manifest "$S0/multifedora/example"
+
+# verify the injected tree in place: btrfs subvolume list prints
+# "ID n gen n top level n path P" relative to the mount point, with
+# ID/gen/top-level varying per install; keep only the paths under
+# multifedora/ and match them exactly (an exact set also catches any
+# un-reshuffled ID-named strays). Then check ro flags and fixture
+# files, which the list does not show.
+rc=0
+sl=$(btrfs subvolume list "$S0" | grep ' path multifedora/' \
+     | sed 's/.*path multifedora\///')
+EXPECTED="example/home
+example/root
+example/root/var/lib/portables
+example/root/var/lib/test-subvol
+example/root/var/lib/test-subvol/nested
+example/root/var/lib/test-subvol/ro-nested"
+[[ $sl == "$EXPECTED" ]] \
+  || { echo "unexpected subvolume tree: $sl" >&2; rc=1; }
+E=$S0/multifedora/example/root/var/lib/test-subvol
+[[ $(btrfs property get "$E/ro-nested" ro) == *true* ]] \
+  || { echo "ro-nested lost its ro flag" >&2; rc=1; }
+[[ -f $E/ro-nested/marker ]] \
+  || { echo "no marker file in ro-nested" >&2; rc=1; }
+[[ -s $E/nested/random ]] \
+  || { echo "no random file in nested" >&2; rc=1; }
+[[ $(btrfs property get "$S0/multifedora/example/root" ro) == *false* ]] \
+  || { echo "root should be rw" >&2; rc=1; }
+
+umount "$S0"; rm -rf "$S0"
+exit $rc
+EOF
+chmod +x "$SHARE/run.sh"
+
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
