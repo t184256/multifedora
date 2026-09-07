@@ -20,13 +20,15 @@ add)
   IMAGE=$3
   [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
 
-  read -rs -p "LUKS passphrase for $IMAGE: " PASSPHRASE
-  echo
+  if [[ -z "$LUKS_PASSPHRASE" ]]; then
+    read -rs -p "LUKS passphrase for $IMAGE: " LUKS_PASSPHRASE
+    echo
+  fi
 
   TMP=$(mktemp -d)
   trap 'rm -rf "$TMP"' EXIT
   # the ESP tar is not needed: this machine's ESP stays in place
-  "$DIR/multifedora-extract" "$IMAGE" "$PASSPHRASE" \
+  "$DIR/multifedora-extract" "$IMAGE" "$LUKS_PASSPHRASE" \
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
   "$DIR/multifedora-new-secondary" "$NAME" \
     "$TMP/boot.tar" "$TMP/rootfs" "$TMP/rootfs.manifest"
