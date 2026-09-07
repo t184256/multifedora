@@ -70,6 +70,13 @@ OLD_BTRFS=$(sed -n 's/^options.*root=UUID=\([^ ]*\).*/\1/p' "$first_entry")
   echo "ERROR: could not read a root uuid from the BLS entry" >&2
   exit 1
 }
+# old LUKS and /boot UUIDs, for a blanket sweep replacement
+OLD_LUKS=$(sed -n 's/.*rd\.luks\.uuid=luks-\([^ ]*\).*/\1/p' "$first_entry")
+if [[ -z $OLD_LUKS && -f $ROOT/etc/crypttab ]]; then
+  OLD_LUKS=$(sed -n 's|^[^ ]* UUID=\([^ ]*\).*|\1|p' \
+    "$ROOT/etc/crypttab" | head -1)
+fi
+OLD_BOOT=$(sed -nE 's/.*--set=root (UUID=)?([^ ]*).*/\2/p' "$BOOT/grub2/grub.cfg")
 
 # get the desired values to reseat to
 BTRFS_UUID=$(findmnt -no UUID /)  # internal btrfs uuid
@@ -93,12 +100,21 @@ bls_points_here() {  # does the first BLS entry point at this disk?
   if [[ -n $LUKS_UUID ]]; then
     grep -q "rd.luks.uuid=luks-$LUKS_UUID" "$first_entry" || return 1
   fi
+  # rd.luks.key=<luks-uuid>=<keyfile>[:UUID=<boot>] (systemd's syntax):
+  # the LUKS uuid, and the keyfile's device if given, must name this disk
+  if grep -q 'rd\.luks\.key=' "$first_entry"; then
+    grep -q "rd\.luks\.key=$LUKS_UUID=" "$first_entry" || return 1
+    grep -q 'rd\.luks\.key=[^ :]*:UUID=' "$first_entry" \
+      && ! grep -q "rd\.luks\.key=[^ :]*:UUID=$BOOT_UUID" "$first_entry" \
+      && return 1
+  fi
   return 0
 }  # BLS switch should be the last one, even after rebuilding initramfs
 
 # re-point crypttab
-if [[ ! -f $ROOT/etc/crypttab ]]; then
-  echo "multifedora-reseat: no crypttab, nothing to re-point"
+if [[ ! -f $ROOT/etc/crypttab ]] \
+   || ! grep -q '^luks-' "$ROOT/etc/crypttab"; then
+  echo "multifedora-reseat: no LUKS entry in crypttab, nothing to re-point"
 elif grep -q "^luks-$LUKS_UUID UUID=$LUKS_UUID " "$ROOT/etc/crypttab"; then
   echo "multifedora-reseat: crypttab already points at this disk"
 else
@@ -135,10 +151,10 @@ if [[ $rebuild_initramfs -eq 1 ]]; then
       extra_mounts+=("$ROOT/$d")
     done
   fi
-  # -m crypt: dracut's automatic LUKS detection does not trigger in chroot
+  # -a crypt: dracut's automatic LUKS detection does not trigger in chroot
   # --hostonly: only hostonly mode embeds /etc/crypttab
   #   (with 'force' above keeping our entry past its device filter)
-  chroot "$ROOT" dracut --force --hostonly -m crypt --kver "$KVER"
+  chroot "$ROOT" dracut --force --hostonly -a crypt --kver "$KVER"
   if [[ $ROOT != / ]]; then
     for m in "${extra_mounts[@]}"; do
       umount "$m"
@@ -192,9 +208,15 @@ if bls_points_here; then
   echo "multifedora-reseat: BLS options already point at this disk"
 else
   for e in "$BOOT"/loader/entries/*.conf; do
+    # rd.luks.key=<luks-uuid>=<keyfile>[:<device>] (systemd's syntax):
+    # re-point the LUKS uuid and the keyfile's device; the keyfile lives
+    # on /boot, whose path secondaries get namespaced further below
     sed -i -E \
-      "s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|; \
-       s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|" "$e"
+      -e "s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|g" \
+      -e "s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|g" \
+      -e "s|(rd\.luks\.key=)[^=:]+=|\1$LUKS_UUID=|g" \
+      -e "s|(rd\.luks\.key=[^ :]*):UUID=[^ :]+|\1:UUID=$BOOT_UUID|g" \
+      "$e"
   done
   bls_points_here || {
     echo "ERROR: failed to re-point the BLS options" >&2; exit 1
@@ -211,22 +233,48 @@ grub_points_here() {
     grep -q "rd.luks.uuid=luks-$LUKS_UUID" "$BOOT/grub2/grub.cfg" \
       || return 1
   fi
+  # rd.luks.key=<luks-uuid>=<keyfile>[:UUID=<boot>] (systemd's syntax):
+  # the LUKS uuid, and the keyfile's device if given, must name this disk
+  if grep -q 'rd\.luks\.key=' "$BOOT/grub2/grub.cfg"; then
+    grep -q "rd\.luks\.key=$LUKS_UUID=" "$BOOT/grub2/grub.cfg" || return 1
+    grep -q 'rd\.luks\.key=[^ :]*:UUID=' "$BOOT/grub2/grub.cfg" \
+      && ! grep -q "rd\.luks\.key=[^ :]*:UUID=$BOOT_UUID" "$BOOT/grub2/grub.cfg" \
+      && return 1
+  fi
   return 0
 }
 if grub_points_here; then
   echo "multifedora-reseat: grub.cfg already points at this disk"
 else
+  # --set=root/--set=boot: put this disk's uuid right after the flag,
+  # replacing whatever token was there; a following --option is kept
   sed -i -E \
-    "s|(--set=root)[^ ]*|\1 $BOOT_UUID|; \
-     s|(--set=boot)[^ ]*|\1 $ESP_UUID|; \
-     s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|; \
-     s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|" \
+    -e "s|(--set=root) (--[^ ]*)|\1 $BOOT_UUID \2|g" \
+    -e "s|(--set=root) [^ ]*|\1 $BOOT_UUID|g" \
+    -e "s|(--set=boot) (--[^ ]*)|\1 $ESP_UUID \2|g" \
+    -e "s|(--set=boot) [^ ]*|\1 $ESP_UUID|g" \
+    -e "s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|g" \
+    -e "s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|g" \
+    -e "s|(rd\.luks\.key=)[^=:]+=|\1$LUKS_UUID=|g" \
+    -e "s|(rd\.luks\.key=[^ :]*):UUID=[^ :]+|\1:UUID=$BOOT_UUID|g" \
     "$BOOT/grub2/grub.cfg"
   grub_points_here || {
     echo "ERROR: failed to re-point grub.cfg" >&2; exit 1
   }
   echo "multifedora-reseat: re-pointed the grub.cfg devices"
 fi
+
+# blanket-sweep any old device UUIDs that custom options may still
+# reference, beyond the known ones re-pointed above; the ESP uuid is
+# shared and never changes on a reseat
+sweep() {  # $1 old, $2 new
+  if [[ -n $1 && ${#1} -eq 36 && $1 != "$2" ]]; then
+    sed -i "s/$1/$2/g" "$BOOT"/loader/entries/*.conf "$BOOT/grub2/grub.cfg"
+  fi
+}
+sweep "$OLD_BTRFS" "$BTRFS_UUID"
+sweep "$OLD_LUKS" "$LUKS_UUID"
+sweep "$OLD_BOOT" "$BOOT_UUID"
 
 # namespace the paths under multifedora/NAME (secondaries only)
 if [[ -n $NAME ]]; then
@@ -243,6 +291,21 @@ if [[ -n $NAME ]]; then
     echo "multifedora-reseat: namespaced the BLS paths"
   else
     echo "multifedora-reseat: BLS paths already namespaced"
+  fi
+
+  # BLS: namespace the LUKS keyfile path (it lives on the shared /boot
+  # partition, where our files are under multifedora/NAME); in systemd's
+  # rd.luks.key=<luks-uuid>=<keyfile>[:<device>] syntax the path is the
+  # field after '='
+  if kp=$(sed -n 's/.*rd\.luks\.key=[^=:]*=\([^ :]*\).*/\1/p' "$first_entry") \
+     && [[ $kp == /* && $kp != "/multifedora/$NAME/"* ]]; then
+    for e in "$BOOT"/loader/entries/*.conf; do
+      sed -i -E "s~(rd\.luks\.key=[^=:]*=)$kp~\1/multifedora/$NAME$kp~g" \
+        "$e"
+    done
+    echo "multifedora-reseat: namespaced the BLS keyfile path"
+  elif [[ ${kp-} == "/multifedora/$NAME/"* ]]; then
+    echo "multifedora-reseat: BLS keyfile path already namespaced"
   fi
 
   # grub.cfg: point blscfg at the namespaced entries directory
