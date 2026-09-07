@@ -7,7 +7,10 @@ set -Eeuo pipefail
 
 [[ $# -eq 1 ]] || { echo "usage: $0 NAME" >&2; exit 2; }
 
-command -v btrfs mount findmnt >/dev/null
+DIR=$(dirname "$(readlink -f "$0")")
+export PATH="$DIR:$PATH"
+
+command -v btrfs mount findmnt readlink >/dev/null
 
 NAME=$1
 
