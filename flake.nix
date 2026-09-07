@@ -66,7 +66,7 @@
       devShells.x86_64-linux.default = pkgs.mkShell {
         packages = with pkgs; [
           coreutils gnumake gnused diffutils
-          qemu_kvm OVMF libguestfs-with-appliance netcat wget parted
+          qemu_kvm OVMF netcat wget parted
           cryptsetup btrfs-progs util-linux openssh
           dosfstools mtools xorriso
           unprivMkefiboot mkksiso
