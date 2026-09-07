@@ -17,7 +17,7 @@ cp --sparse=always tmp/02/second.img "$WORK"
 SHARE=tmp/04/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
-cp ../multifedora-inject ../multifedora-remove \
+cp ../multifedora-inject ../multifedora-remove ../multifedora-esp-menu \
    tmp/03/second.rootfs tmp/03/second.rootfs.manifest "$SHARE/"
 cat > "$SHARE/run.sh" <<'EOF'
 #!/usr/bin/env bash
