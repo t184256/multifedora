@@ -4,6 +4,8 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")"
 
+die() { echo "FAIL: $*" >&2; exit 1; }
+
 mkdir -p tmp/03/share
 cp ../multifedora-extract tmp/03/share
 cp --sparse=always tmp/01/initial.img tmp/03/tmp-initial.img
@@ -13,8 +15,23 @@ trap 'rm -rf tmp/03/tmp-initial.img tmp/03/share' EXIT
 SHARE_DIR=tmp/03/share ./tool-spin-up tmp/03/tmp-initial.img \
   "cd /share && \
    ./multifedora-extract second.img example \
-                    second.esp.tar second.boot.tar second.rootfs.btrfs"
+                    second.esp.tar second.boot.tar second.rootfs"
 
 mv tmp/03/share/second.esp.tar tmp/03/
 mv tmp/03/share/second.boot.tar tmp/03/
-mv tmp/03/share/second.rootfs.btrfs tmp/03/
+mv tmp/03/share/second.rootfs tmp/03/
+mv tmp/03/share/second.rootfs.manifest tmp/03/
+
+# compare to a fixed expected list, skipping IDs, parents before children
+M=tmp/03/second.rootfs.manifest
+[[ -s $M ]] || die "no manifest"
+EXPECTED="home rw
+root rw
+root/var/lib/portables rw
+root/var/lib/test-subvol rw
+root/var/lib/test-subvol/nested rw
+root/var/lib/test-subvol/ro-nested ro"
+[[ $(cut -d' ' -f1,3 "$M") == "$EXPECTED" ]] \
+  || die "unexpected subvolume set, order or ro state"
+
+echo "extracted: $(ls tmp/03)"

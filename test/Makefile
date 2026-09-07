@@ -1,10 +1,11 @@
 # aliases
-EXTRCD = tmp/03/second.esp.tar tmp/03/second.boot.tar tmp/03/second.rootfs.btrfs
+EXTRACTED = tmp/03/second.esp.tar tmp/03/second.boot.tar \
+            tmp/03/second.rootfs tmp/03/second.rootfs.manifest
 .DEFAULT_GOAL := extract-second
 .PHONY: install-initial install-second extract-second supplant-second
 install-initial: tmp/01/initial.img
 install-second: tmp/02/second.img
-extract-second: $(EXTRCD)
+extract-second: $(EXTRACTED)
 
 ISO_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/44/$\
     Server/x86_64/iso/Fedora-Server-dvd-x86_64-44-1.7.iso
@@ -21,7 +22,7 @@ tmp/02/second.img: tmp/01/initial.img tmp/fedora.iso
 tmp/02/second.img: 02-install-second tool-install
 	./02-install-second
 
-$(EXTRCD) &: tmp/02/second.img 03-extract-second ../multifedora-extract
+$(EXTRACTED) &: tmp/02/second.img 03-extract-second ../multifedora-extract
 	./03-extract-second
 
 

@@ -2,9 +2,10 @@
 # Extract data from an installed Fedora disk image with a default btrfs layout:
 # GPT(ESP(vfat), /boot(ext4), p3=LUKS(btrfs(root, home, ...)).
 # Writes:
-#   OUT_ESP_TAR       tarball of the ESP partition contents
-#   OUT_BOOT_TAR      tarball of the /boot partition contents
-#   OUT_ROOT_BTRFS    single btrfs send stream of all subvolumes
+#   OUT_ESP_TAR          tarball of the ESP partition contents
+#   OUT_BOOT_TAR         tarball of the /boot partition contents
+#   OUT_ROOTFS           all rootfs btrfs subvolumes stream, named after IDs
+#   OUT_ROOTFS.manifest  one line per subvolume, in restore order: id path ro|rw
 
 set -Eeuo pipefail
 
@@ -24,11 +25,10 @@ OUT_ROOT_BTRFS=$5
 
 LO=$(losetup --find --show --partscan "$IMG")
 TMP=$(mktemp -d)
-SUBVOLS=()
-TOGGLED=()
+SNAPS=()
 cleanup() {
-  for sv in "${TOGGLED[@]}"; do
-    btrfs property set "$TMP/$sv" ro false 2>/dev/null || true
+  for sv in "${SNAPS[@]}"; do
+    btrfs subvolume delete "$TMP/$sv" 2>/dev/null || true
   done
   umount "$TMP" 2>/dev/null || true
   cryptsetup close fedroot 2>/dev/null || true
@@ -43,23 +43,32 @@ trap cleanup EXIT
 mount -o ro "${LO}p1" "$TMP"; tar -C "$TMP" -cf "$OUT_ESP_TAR" .; umount "$TMP"
 mount -o ro "${LO}p2" "$TMP"; tar -C "$TMP" -cf "$OUT_BOOT_TAR" .; umount "$TMP"
 
-# btrfs send requires the ro subvolume flag (a ro mount is not enough),
-# so toggle it transiently on each rw one, then send them all together
 echo -n "$LUKS_PASSPHRASE" | cryptsetup open --key-file=- "${LO}p3" fedroot
 mount -o subvolid=5 /dev/mapper/fedroot "$TMP"
-mapfile -t SUBVOLS < <(btrfs subvolume list "$TMP" | cut -d' ' -f9-)
-for sv in "${SUBVOLS[@]}"; do
+
+# btrfs send only records each subvolume's basenames in the stream,
+# then receive extracts them flat with no hierarchy, so name them after IDs.
+LINES=()
+while read -r _f1 id _f2 _gen _f3 _lvl _parent _f8 path; do
   # btrfs-progs prints "ro: false" (old) or "ro=false" (new)
-  if [[ $(btrfs property get "$TMP/$sv" ro) == *false* ]]; then
-    btrfs property set "$TMP/$sv" ro true
-    TOGGLED+=("$sv")
+  if [[ $(btrfs property get "$TMP/$path" ro) == *false* ]]; then
+    flag=rw
+  else
+    flag=ro
   fi
-done
+  LINES+=("$path $id $flag")
+done < <(btrfs subvolume list "$TMP")
 
+printf '%s\n' "${LINES[@]}" | LC_ALL=C sort > "$OUT_ROOT_BTRFS.manifest"
+
+while read -r path id flag; do
+  btrfs subvolume snapshot -r "$TMP/$path" "$TMP/$id"
+  SNAPS+=("$id")
+done < "$OUT_ROOT_BTRFS.manifest"
 btrfs send -e --proto 0 --compressed-data \
-  -f "$OUT_ROOT_BTRFS" "${SUBVOLS[@]/#/$TMP/}"
-
-for sv in "${TOGGLED[@]}"; do btrfs property set "$TMP/$sv" ro false; done
+  -f "$OUT_ROOT_BTRFS" "${SNAPS[@]/#/$TMP/}"
+for sv in "${SNAPS[@]}"; do btrfs subvolume delete "$TMP/$sv"; done
 umount "$TMP"
 
-echo "unpacked: $OUT_ESP_TAR $OUT_BOOT_TAR $OUT_ROOT_BTRFS"
+echo -n 'extracted: '
+echo "$OUT_ESP_TAR $OUT_BOOT_TAR $OUT_ROOT_BTRFS $OUT_ROOT_BTRFS.manifest"
