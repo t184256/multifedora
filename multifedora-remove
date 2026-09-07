@@ -29,5 +29,5 @@ for sv in $(btrfs subvolume list "$S0" | \
 done
 rmdir "$MULTI/$NAME"
 rm -rf "/boot/multifedora/$NAME"
-# TODO: regenerate top-level boot menu
+multifedora-esp-menu
 echo "removed multifedora/$NAME"

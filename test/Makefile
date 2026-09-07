@@ -5,7 +5,7 @@ VM_TOOLS = tool-spin-up tool-inside-vm
 .DEFAULT_GOAL := all
 .PHONY: all install-initial install-second extract-second inject-remove \
         dual-install dual-boot-primary dual-boot-secondary
-all: dual-install dual-boot-primary dual-boot-secondary
+all: inject-remove dual-install dual-boot-primary dual-boot-secondary
 install-initial: tmp/01/initial.img
 install-second: tmp/02/second.img
 extract-second: $(EXTRACTED)
@@ -36,6 +36,7 @@ $(EXTRACTED) &: tmp/02/second.img 03-extract-second ../multifedora-extract $(VM_
 
 tmp/04/ok: tmp/02/second.img $(EXTRACTED) 04-inject-remove
 tmp/04/ok: ../multifedora-inject ../multifedora-remove
+tmp/04/ok: ../multifedora-esp-menu
 tmp/04/ok: $(VM_TOOLS)
 	./04-inject-remove
 
