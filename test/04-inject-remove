@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stage 04: test multifedora-inject in isolation.
+# Stage 04: test multifedora-inject and multifedora-remove.
 
 set -Eeuo pipefail
 cd "$(dirname "$0")"
@@ -10,21 +10,19 @@ for f in second.rootfs second.rootfs.manifest; do
   [[ -s tmp/03/$f ]] || die "no tmp/03/$f; run stage 03 first"
 done
 
-WORK=tmp/04/injected.img
+WORK=tmp/04/tmp.img
 mkdir -p tmp/04
 cp --sparse=always tmp/02/second.img "$WORK"
 
 SHARE=tmp/04/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
-cp ../multifedora-inject tmp/03/second.rootfs \
-   tmp/03/second.rootfs.manifest "$SHARE/"
+cp ../multifedora-inject ../multifedora-remove \
+   tmp/03/second.rootfs tmp/03/second.rootfs.manifest "$SHARE/"
 cat > "$SHARE/run.sh" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# mount the btrfs top level and inject into multifedora/example,
-# exactly where a yield or new-secondary would put it
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
 mount -o subvolid=5 "$BDEV" "$S0"
@@ -33,12 +31,6 @@ mount -o subvolid=5 "$BDEV" "$S0"
 /share/multifedora-inject /share/second.rootfs \
   /share/second.rootfs.manifest "$S0/multifedora/example"
 
-# verify the injected tree in place: btrfs subvolume list prints
-# "ID n gen n top level n path P" relative to the mount point, with
-# ID/gen/top-level varying per install; keep only the paths under
-# multifedora/ and match them exactly (an exact set also catches any
-# un-reshuffled ID-named strays). Then check ro flags and fixture
-# files, which the list does not show.
 rc=0
 sl=$(btrfs subvolume list "$S0" | grep ' path multifedora/' \
      | sed 's/.*path multifedora\///')
@@ -59,6 +51,15 @@ E=$S0/multifedora/example/root/var/lib/test-subvol
   || { echo "no random file in nested" >&2; rc=1; }
 [[ $(btrfs property get "$S0/multifedora/example/root" ro) == *false* ]] \
   || { echo "root should be rw" >&2; rc=1; }
+[[ $rc -eq 0 ]] || exit $rc
+
+# then remove it again and verify nothing is left behind
+/share/multifedora-remove example
+sl=$(btrfs subvolume list "$S0" | sed -n 's/.*path multifedora\///p')
+[[ $sl == "" ]] \
+  || { echo "leftover under multifedora/: $sl" >&2; rc=1; }
+[[ ! -e $S0/multifedora/example ]] \
+  || { echo "multifedora/example still exists" >&2; rc=1; }
 
 umount "$S0"; rm -rf "$S0"
 exit $rc
@@ -66,3 +67,7 @@ EOF
 chmod +x "$SHARE/run.sh"
 
 SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
+# success: remove the working image (a failed run leaves it for
+# inspection) and drop the marker make keys on
+rm -f "$WORK"
+touch tmp/04/ok

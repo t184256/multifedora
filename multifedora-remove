@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Remove a multifedora/NAME system: its subvolumes, its boot tree under
+# /boot/multifedora/, and its tier-1 menu entry. Frees the space.
+# usage: $0 NAME
+
+set -Eeuo pipefail
+
+[[ $# -eq 1 ]] || { echo "usage: $0 NAME" >&2; exit 2; }
+
+command -v btrfs mount findmnt >/dev/null
+
+NAME=$1
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+mount -o subvolid=5 "$BDEV" "$S0"
+trap 'umount "$S0" 2>/dev/null || true; rm -rf "$S0"' EXIT
+MULTI=$S0/multifedora
+
+[[ -d $MULTI/$NAME ]] || {
+  echo "ERROR: no such system: multifedora/$NAME" >&2
+  exit 1
+}
+
+# $MULTI/$NAME is a plain directory of subvolumes
+for sv in $(btrfs subvolume list "$S0" | \
+            grep -E " path multifedora/$NAME/[^/ ]+$" | sed 's/.*path //'); do
+  btrfs subvolume delete -R "$S0/$sv"
+done
+rmdir "$MULTI/$NAME"
+rm -rf "/boot/multifedora/$NAME"
+# TODO: regenerate top-level boot menu
+echo "removed multifedora/$NAME"
