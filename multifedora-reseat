@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+# Do whatever's needed for the system to boot from its new location:
+# * point its device UUIDs at this disk's,
+#   in fstab, crypttab, BLS options and grub.cfg
+# * if it is a secondary (SECONDARY_NAME given):
+#   namespace its kernel/initrd paths under /boot/multifedora/NAME
+#   and its subvolumes under multifedora/NAME,
+#   give it a private /boot (a bind mount of that directory) and a read-only ESP
+# * rebuild initramfs if needed (right after the crypttab re-point,
+#   before BLS's rd.luks.uuid changes, so a re-run after a mid-way
+#   death redoes the rebuild instead of skipping it)
+# Re-seats the top-level system if no secondary name is supplied.
+# usage: $0 [SECONDARY_NAME]
+
+set -Eeuo pipefail
+
+[[ $# -le 1 ]] || { echo "usage: $0 [SECONDARY_NAME]" >&2; exit 2; }
+case $# in
+  0) ROOT=/; BOOT=/boot; NAME='' ;;
+  1) NAME=$1 ;;
+esac
+
+command -v mount findmnt sed install cmp chroot >/dev/null
+
+extra_mounts=()
+S0=''
+cleanup() {
+  local m
+  for m in "${extra_mounts[@]}"; do
+    umount "$m" 2>/dev/null || true
+  done
+  if [[ -n $S0 ]]; then
+    umount "$S0" 2>/dev/null || true
+    rm -rf "$S0"
+  fi
+}
+trap cleanup EXIT
+
+if [[ -n $NAME ]]; then  # mount subvolid=0, figure out BOOT/ROOT
+  BOOT="/boot/multifedora/$NAME"
+  # go at great lengths to not simply hardcode ROOT=$S0/multifedora/$NAME/root:
+  BDEV=$(findmnt -no SOURCE / | sed 's/\[.*\]//')  # strip [subvol=...]
+  S0=$(mktemp -d)
+  mount -o subvolid=5 "$BDEV" "$S0"
+  ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
+    "$BOOT"/loader/entries/*.conf | head -1)
+  # a previously seated system has the namespace in its BLS options
+  ROOTSV=${ROOTSV#"multifedora/$NAME/"}
+  [[ -n $ROOTSV && -d $S0/multifedora/$NAME/$ROOTSV ]] || {
+    echo "ERROR: no root subvolume at multifedora/$NAME/$ROOTSV" >&2
+    exit 1
+  }
+  ROOT="$S0/multifedora/$NAME/$ROOTSV"
+fi
+[[ -d $BOOT/loader/entries ]] || {
+  echo "ERROR: no BLS entries under $BOOT" >&2
+  exit 1
+}
+
+# get the system's current root uuid
+first_entry=''
+for e in "$BOOT"/loader/entries/*.conf; do
+  first_entry=$e
+  break
+done
+OLD_BTRFS=$(sed -n 's/^options.*root=UUID=\([^ ]*\).*/\1/p' "$first_entry")
+# a malformed or missing value would make the file-wide substitution
+# below run with an empty pattern and corrupt fstab
+[[ ${#OLD_BTRFS} -eq 36 ]] || {
+  echo "ERROR: could not read a root uuid from the BLS entry" >&2
+  exit 1
+}
+
+# get the desired values to reseat to
+BTRFS_UUID=$(findmnt -no UUID /)  # internal btrfs uuid
+# -T: $BOOT is a directory inside the /boot mount, not a mount point
+BOOT_UUID=$(findmnt -no UUID -T "$BOOT")  # /boot partition
+ESP_UUID=$(findmnt -no UUID /boot/efi)  # vfat ESP
+ROOT_SRC=$(findmnt -no SOURCE / | sed 's/\[.*\]//')
+case $ROOT_SRC in
+  /dev/mapper/luks-*) LUKS_UUID=${ROOT_SRC#/dev/mapper/luks-} ;;
+  *) LUKS_UUID= ;;
+esac
+
+rebuild_initramfs=0
+if [[ -n $LUKS_UUID ]] \
+   && ! grep -q "rd.luks.uuid=luks-$LUKS_UUID" "$first_entry"; then
+  rebuild_initramfs=1
+fi
+
+bls_points_here() {  # does the first BLS entry point at this disk?
+  grep -q "root=UUID=$BTRFS_UUID" "$first_entry" || return 1
+  if [[ -n $LUKS_UUID ]]; then
+    grep -q "rd.luks.uuid=luks-$LUKS_UUID" "$first_entry" || return 1
+  fi
+  return 0
+}  # BLS switch should be the last one, even after rebuilding initramfs
+
+# re-point crypttab
+if [[ ! -f $ROOT/etc/crypttab ]]; then
+  echo "multifedora-reseat: no crypttab, nothing to re-point"
+elif grep -q "^luks-$LUKS_UUID UUID=$LUKS_UUID " "$ROOT/etc/crypttab"; then
+  echo "multifedora-reseat: crypttab already points at this disk"
+else
+  # rewrite the identity fields
+  sed -i -E \
+    "s|^(luks-)[^ ]* (UUID=)[^ ]*|\1$LUKS_UUID \2$LUKS_UUID|" \
+    "$ROOT/etc/crypttab"
+  grep -q "^luks-$LUKS_UUID UUID=$LUKS_UUID " "$ROOT/etc/crypttab" \
+    || { echo "ERROR: failed to re-point crypttab" >&2; exit 1; }
+  echo "multifedora-reseat: re-pointed the crypttab LUKS device"
+fi
+
+# rebuild the initramfs if the LUKS identity changed
+if [[ $rebuild_initramfs -eq 1 ]]; then
+  echo "multifedora-reseat: rebuilding the initramfs"
+  # dracut's hostonly filter drops crypttab entries whose device it cannot
+  # match against a LUKS device inside the chroot; 'force' keeps ours
+  if ! grep "^luks-$LUKS_UUID " "$ROOT/etc/crypttab" | grep -q 'force$'; then
+    sed -i "/^luks-$LUKS_UUID / s/ \([^ ]*\)$/ \1,force/" \
+      "$ROOT/etc/crypttab"
+  fi
+  KVER=$(sed -n 's|^linux .*/vmlinuz-\([^ ]*\).*|\1|p' \
+    "$BOOT"/loader/entries/*.conf | head -1)
+  [[ -n $KVER ]] || {
+    echo "ERROR: no kernel version in $BOOT/loader/entries" >&2
+    exit 1
+  }
+  if [[ $ROOT != / ]]; then
+    mkdir -p "$ROOT/boot"
+    mount --bind "$BOOT" "$ROOT/boot"
+    extra_mounts+=("$ROOT/boot")
+    for d in dev proc sys run; do
+      mount --bind "/$d" "$ROOT/$d"
+      extra_mounts+=("$ROOT/$d")
+    done
+  fi
+  # -m crypt: dracut's automatic LUKS detection does not trigger in chroot
+  # --hostonly: only hostonly mode embeds /etc/crypttab
+  #   (with 'force' above keeping our entry past its device filter)
+  chroot "$ROOT" dracut --force --hostonly -m crypt --kver "$KVER"
+  if [[ $ROOT != / ]]; then
+    for m in "${extra_mounts[@]}"; do
+      umount "$m"
+    done
+    extra_mounts=()
+  fi
+else
+  echo "multifedora-reseat: initramfs already built for this disk"
+fi
+
+# re-point the remaining device UUIDs (no paths change)
+if [[ $OLD_BTRFS != "$BTRFS_UUID" ]] \
+   && grep -qF -- "$OLD_BTRFS" "$ROOT/etc/fstab"; then
+  sed -i "s/$OLD_BTRFS/$BTRFS_UUID/g" "$ROOT/etc/fstab"
+  if grep -qF -- "$OLD_BTRFS" "$ROOT/etc/fstab"; then
+    echo "ERROR: failed to re-point the fstab btrfs uuid" >&2
+    exit 1
+  fi
+  echo "multifedora-reseat: re-pointed the fstab btrfs devices"
+else
+  echo "multifedora-reseat: fstab btrfs already points at this disk"
+fi
+
+# boot partition: one line, matched by mount point
+# (/boot pre-seating, /.real-boot after)
+if grep -qE "^UUID=$BOOT_UUID /(\.real-)?boot(\s|\$)" "$ROOT/etc/fstab"; then
+  echo "multifedora-reseat: fstab boot already points at this disk"
+else
+  sed -i -E \
+    "s|^([^ ]+) (/(\.real-)?boot)(\s.*)$|UUID=$BOOT_UUID \2\4|" \
+    "$ROOT/etc/fstab"
+  grep -qE "^UUID=$BOOT_UUID /(\.real-)?boot(\s|\$)" "$ROOT/etc/fstab" \
+    || { echo "ERROR: failed to re-point the fstab boot line" >&2; exit 1; }
+  echo "multifedora-reseat: re-pointed the fstab boot partition"
+fi
+
+# ESP: one line, matched by mount point
+if grep -qE "^UUID=$ESP_UUID /boot/efi(\s|\$)" "$ROOT/etc/fstab"; then
+  echo "multifedora-reseat: fstab ESP already points at this disk"
+else
+  sed -i -E \
+    "s|^([^ ]+) (/boot/efi)(\s.*)$|UUID=$ESP_UUID \2\3|" \
+    "$ROOT/etc/fstab"
+  grep -qE "^UUID=$ESP_UUID /boot/efi(\s|\$)" "$ROOT/etc/fstab" \
+    || { echo "ERROR: failed to re-point the fstab ESP line" >&2; exit 1; }
+  echo "multifedora-reseat: re-pointed the fstab ESP"
+fi
+
+# BLS options: root= and rd.luks.uuid must name this disk
+if bls_points_here; then
+  echo "multifedora-reseat: BLS options already point at this disk"
+else
+  for e in "$BOOT"/loader/entries/*.conf; do
+    sed -i -E \
+      "s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|; \
+       s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|" "$e"
+  done
+  bls_points_here || {
+    echo "ERROR: failed to re-point the BLS options" >&2; exit 1
+  }
+  echo "multifedora-reseat: re-pointed the BLS options"
+fi
+
+# grub.cfg: the two search lines and the kernelopts defaults
+grub_points_here() {
+  grep -q -- "--set=root $BOOT_UUID" "$BOOT/grub2/grub.cfg" || return 1
+  grep -q -- "--set=boot $ESP_UUID" "$BOOT/grub2/grub.cfg" || return 1
+  grep -q "root=UUID=$BTRFS_UUID" "$BOOT/grub2/grub.cfg" || return 1
+  if [[ -n $LUKS_UUID ]]; then
+    grep -q "rd.luks.uuid=luks-$LUKS_UUID" "$BOOT/grub2/grub.cfg" \
+      || return 1
+  fi
+  return 0
+}
+if grub_points_here; then
+  echo "multifedora-reseat: grub.cfg already points at this disk"
+else
+  sed -i -E \
+    "s|(--set=root)[^ ]*|\1 $BOOT_UUID|; \
+     s|(--set=boot)[^ ]*|\1 $ESP_UUID|; \
+     s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|; \
+     s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|" \
+    "$BOOT/grub2/grub.cfg"
+  grub_points_here || {
+    echo "ERROR: failed to re-point grub.cfg" >&2; exit 1
+  }
+  echo "multifedora-reseat: re-pointed the grub.cfg devices"
+fi
+
+# namespace the paths under multifedora/NAME (secondaries only)
+if [[ -n $NAME ]]; then
+  # BLS: namespace the kernel/initrd paths and the root subvolume
+  lp=$(sed -n 's/^linux //p' "$first_entry")
+  if [[ $lp == /* && $lp != "/multifedora/$NAME/"* ]]; then
+    for e in "$BOOT"/loader/entries/*.conf; do
+      sed -i -e "s|^linux /|linux /multifedora/$NAME/|" \
+             -e "s|^initrd /|initrd /multifedora/$NAME/|" "$e"
+      sed -i -E \
+        "s|rootflags=subvol=([^ ]+) |rootflags=subvol=multifedora/$NAME/\1 |" \
+        "$e"
+    done
+    echo "multifedora-reseat: namespaced the BLS paths"
+  else
+    echo "multifedora-reseat: BLS paths already namespaced"
+  fi
+
+  # grub.cfg: point blscfg at the namespaced entries directory
+  # (a bare `blscfg` reads $root/loader/entries, i.e. the primary's entries)
+  if grep -q '^blscfg$' "$BOOT/grub2/grub.cfg"; then
+    sed -i "s|^blscfg\$|blscfg (\$root)/multifedora/$NAME/loader/entries|" \
+      "$BOOT/grub2/grub.cfg"
+    echo "multifedora-reseat: pointed blscfg at the namespaced entries"
+  else
+    echo "multifedora-reseat: blscfg already points there"
+  fi
+
+  # fstab: namespace every subvol= path that lacks the prefix
+  if sed -n 's/.*subvol=\([^,]*\).*/\1/p' "$ROOT/etc/fstab" \
+     | grep -v "^multifedora/$NAME/" | grep -q .; then
+    sed -i -E "s|subvol=([^,]+),|subvol=multifedora/$NAME/\1,|" \
+      "$ROOT/etc/fstab"
+    echo "multifedora-reseat: namespaced the fstab subvolumes"
+  else
+    echo "multifedora-reseat: fstab subvolumes already namespaced"
+  fi
+
+  # fstab: mount the shared /boot partition at /.real-boot
+  # and bind our namespaced directory to /boot
+  if grep -qE "^UUID=[^\s]* /boot(\s|\$)" \
+     "$ROOT/etc/fstab"; then
+    sed -i -E "/^UUID=[^\s]* \/boot(\s|\$)/ \
+s|^([^\s]+) /boot(.*)$|\\1 /.real-boot\\2\n\
+/.real-boot/multifedora/$NAME /boot none bind 0 0|" \
+      "$ROOT/etc/fstab"
+    echo "multifedora-reseat: split the /boot mount into a bind pair"
+  else
+    echo "multifedora-reseat: /boot already mounted via /.real-boot"
+  fi
+
+  # fstab: the shared ESP is owned by primary, read-only on secondary systems
+  esp_line=$(grep -E '^[^ ]+ /boot/efi ' "$ROOT/etc/fstab" || true)
+  if [[ -n $esp_line && $esp_line != *',ro '* && $esp_line != *' ro '* ]]; then
+    sed -i -E 's|^([^ ]+ /boot/efi [^ ]+ )([^ ]+)|\1\2,ro|' "$ROOT/etc/fstab"
+    echo "multifedora-reseat: made the ESP mount read-only"
+  else
+    echo "multifedora-reseat: ESP mount already read-only"
+  fi
+fi
+
+echo "multifedora-reseat: done"

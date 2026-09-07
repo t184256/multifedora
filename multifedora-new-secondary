@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Install a system under multifedora/NAME. It never becomes the primary.
+# The shared ESP and /boot partition stay in place: its boot tree goes to
+# /boot/multifedora/NAME/ and a ESP menu entry is added for it.
+# ESP stays intact.
+# usage: $0 NAME BOOT STREAM MANIFEST
+
+set -Eeuo pipefail
+
+[[ $# -eq 4 ]] || { echo "usage: $0 NAME BOOT STREAM" >&2; exit 2; }
+
+NAME=$1
+BOOT_TAR=$2
+STREAM=$3
+MANIFEST=$4
+
+command -v btrfs mount findmnt tar sed >/dev/null
+
+for f in "$BOOT_TAR" "$STREAM" "$MANIFEST"; do
+  [[ -f $f ]] || { echo "ERROR: no such file: $f" >&2; exit 1; }
+done
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+mount -o subvolid=5 "$BDEV" "$S0"
+trap 'umount "$S0" 2>/dev/null || true; rm -rf "$S0"' EXIT
+MULTI=$S0/multifedora
+[[ -d $MULTI ]] || btrfs subvolume create "$MULTI"
+
+[[ -e $MULTI/$NAME ]] && {
+  echo "ERROR: multifedora/$NAME already exists" >&2
+  exit 1
+}
+
+multifedora-inject "$STREAM" "$MANIFEST" "$MULTI/$NAME"
+
+mkdir -p "/boot/multifedora/$NAME"
+tar xf "$BOOT_TAR" -C "/boot/multifedora/$NAME"
+
+multifedora-reseat "$NAME"
+multifedora-esp-menu
+echo "installed multifedora/$NAME; it appears in the ESP menu now"

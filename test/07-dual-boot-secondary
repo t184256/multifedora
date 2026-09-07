@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Stage 07: boot stage 05's image into the secondary system.
+# The tier-1 menu lists the primary first and the secondary second,
+# so GRUB_DOWN_COUNT=1 moves the highlight; with the ESP timeout at
+# 10s the countdown does the rest even if the enter is lost. Works on
+# a copy of tmp/05/dual.img. Run from test/.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/05/dual.img ]] || die "no tmp/05/dual.img; run stage 05 first"
+
+WORK=tmp/07/work.img
+mkdir -p tmp/07
+cp --sparse=always tmp/05/dual.img "$WORK"
+
+# shellcheck disable=SC2016
+GRUB_DOWN_COUNT=1 ./tool-spin-up "$WORK" \
+  'test "$(cat /etc/multifedora-marker)" = example'
+rm -f "$WORK"
+touch tmp/07/ok

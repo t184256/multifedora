@@ -92,7 +92,7 @@ echo "qemu up (pid $QEMU_PID), monitor on $MON, waiting for SSH to go up..."
 
 if (( ${GRUB_DOWN_COUNT:-0} )); then
   sleep 3
-  for _ in $(seq "$GRUB_DOWN_COUNT"); do mon sendkey down; done
+  for _ in $(seq "$GRUB_DOWN_COUNT"); do mon 'sendkey down'; done
   mon 'sendkey ret'
 else
   # spam early enters, hoping to skip the menu countdown(s) on defaults

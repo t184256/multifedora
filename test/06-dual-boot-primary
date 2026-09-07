@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stage 06: boot stage 05's image and check we land on the primary.
+# The tier-1 menu's default is the primary, so no keys are needed.
+# Works on a copy of tmp/05/dual.img. Run from test/.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/05/dual.img ]] || die "no tmp/05/dual.img; run stage 05 first"
+
+WORK=tmp/06/work.img
+mkdir -p tmp/06
+cp --sparse=always tmp/05/dual.img "$WORK"
+
+# shellcheck disable=SC2016
+./tool-spin-up "$WORK" 'test "$(cat /etc/multifedora-marker)" = primary'
+rm -f "$WORK"
+touch tmp/06/ok
