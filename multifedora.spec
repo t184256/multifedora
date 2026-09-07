@@ -5,7 +5,14 @@ Summary:        Manage multiple Fedora systems on one disk
 License:        MIT
 BuildArch:      noarch
 AutoReqProv:    no
-Requires:       btrfs-progs cryptsetup dracut grep sed tar util-linux
+Requires:       btrfs-progs
+Requires:       cryptsetup
+Requires:       dracut
+Requires:       grep
+Requires:       sed
+Requires:       systemd
+Requires:       tar
+Requires:       util-linux
 
 %description
 Install additional Fedora systems on your existing btrfs rootfs
