@@ -33,8 +33,36 @@
             --replace-fail '"mkefiboot"' "\"${unprivMkefiboot}/bin/mkefiboot\""
         '';
       };
+
+      multifedoraScripts = pkgs.runCommand "multifedora-rpm-src" {} ''
+        mkdir -p $out
+        # store paths carry hash-prefixed names, so name the targets
+        cp ${./multifedora} $out/multifedora
+        cp ${./multifedora-extract} $out/multifedora-extract
+        cp ${./multifedora-inject} $out/multifedora-inject
+        cp ${./multifedora-esp-menu} $out/multifedora-esp-menu
+        cp ${./multifedora-new-secondary} $out/multifedora-new-secondary
+        cp ${./multifedora-remove} $out/multifedora-remove
+        cp ${./multifedora-reseat} $out/multifedora-reseat
+      '';
+
+      multifedoraRpm = pkgs.runCommand "multifedora-0.1" {
+        nativeBuildInputs = [ pkgs.rpm ];
+      } ''
+        TOPDIR=$(mktemp -d)
+        mkdir -p $TOPDIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS,tmp,db}
+        cp ${./multifedora.spec} $TOPDIR/SPECS/multifedora.spec
+        rpmbuild --nodeps \
+          --define "srcdir ${multifedoraScripts}" \
+          --define "_prefix /usr" --define "_topdir $TOPDIR" \
+          --define "_tmppath $TOPDIR/tmp" --define "_dbpath $TOPDIR/db" \
+          -bb $TOPDIR/SPECS/multifedora.spec
+        mkdir -p $out
+        cp $TOPDIR/RPMS/noarch/*.rpm $out/
+      '';
     in
     {
+      packages.x86_64-linux.multifedora-rpm = multifedoraRpm;
       devShells.x86_64-linux.default = pkgs.mkShell {
         packages = with pkgs; [
           coreutils gnumake gnused diffutils
@@ -43,7 +71,9 @@
           dosfstools mtools xorriso
           unprivMkefiboot mkksiso
         ];
-        shellHook = ''export OVMF="${pkgs.OVMF.fd}/FV"'';
+        shellHook = ''
+          export OVMF="${pkgs.OVMF.fd}/FV"
+        '';
       };
     };
 }
