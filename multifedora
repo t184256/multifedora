@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# multifedora: manage secondary systems under multifedora/.
+# usage: $0 add SECONDARY_NAME IMAGE   install a system from a disk image
+#        $0 remove SECONDARY           delete a system and free its space
+
+set -Eeuo pipefail
+
+# resolve symlinks: we are installed as /usr/sbin/multifedora -> libexec
+DIR=$(dirname "$(readlink -f "$0")")
+# the helpers call each other by bare name
+export PATH="$DIR:$PATH"
+USAGE="usage: $0 add SECONDARY_NAME IMAGE | remove SECONDARY"
+
+[[ $# -ge 1 ]] || { echo "$USAGE" >&2; exit 2; }
+
+case $1 in
+add)
+  [[ $# -eq 3 ]] || { echo "usage: $0 add SECONDARY_NAME IMAGE" >&2; exit 2; }
+  NAME=$2
+  IMAGE=$3
+  [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
+
+  read -rs -p "LUKS passphrase for $IMAGE: " PASSPHRASE
+  echo
+
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' EXIT
+  # the ESP tar is not needed: this machine's ESP stays in place
+  "$DIR/multifedora-extract" "$IMAGE" "$PASSPHRASE" \
+    "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
+  "$DIR/multifedora-new-secondary" "$NAME" \
+    "$TMP/boot.tar" "$TMP/rootfs" "$TMP/rootfs.manifest"
+  ;;
+remove)
+  [[ $# -eq 2 ]] || { echo "usage: $0 remove SECONDARY" >&2; exit 2; }
+  "$DIR/multifedora-remove" "$2"
+  ;;
+*)
+  echo "$USAGE" >&2
+  exit 2
+  ;;
+esac
