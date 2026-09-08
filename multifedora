@@ -29,7 +29,11 @@ add)
   IMAGE=$3
   [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
 
-  if [[ -z "$LUKS_PASSPHRASE" ]]; then
+  if [[ -z ${LUKS_PASSPHRASE-} ]]; then
+    [[ -t 0 ]] || {
+      echo "ERROR: no LUKS_PASSPHRASE and no tty to prompt on" >&2
+      exit 1
+    }
     read -rs -p "LUKS passphrase for $IMAGE: " LUKS_PASSPHRASE
     echo
   fi
@@ -52,7 +56,11 @@ prime-pivot)
   IMAGE=$3
   [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
 
-  if [[ -z "$LUKS_PASSPHRASE" ]]; then
+  if [[ -z ${LUKS_PASSPHRASE-} ]]; then
+    [[ -t 0 ]] || {
+      echo "ERROR: no LUKS_PASSPHRASE and no tty to prompt on" >&2
+      exit 1
+    }
     read -rs -p "LUKS passphrase for $IMAGE: " LUKS_PASSPHRASE
     echo
   fi
