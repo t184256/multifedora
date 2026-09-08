@@ -45,7 +45,12 @@ add)
   fi
 
   TMP=$(mktemp -d)
-  trap 'rm -rf "$TMP"' EXIT
+  cleanup() {
+    rm -f "$TMP/esp.tar" "$TMP/boot.tar" \
+        "$TMP/rootfs" "$TMP/rootfs.manifest"
+    rm -d "$TMP"
+  }
+  trap cleanup EXIT
   # the ESP tar is not needed: this machine's ESP stays in place
   "$DIR/multifedora-extract" "$IMAGE" "$LUKS_PASSPHRASE" \
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
@@ -75,7 +80,12 @@ prime-pivot)
   fi
 
   TMP=$(mktemp -d)
-  trap 'rm -rf "$TMP"' EXIT
+  cleanup() {
+    rm -f "$TMP/esp.tar" "$TMP/boot.tar" \
+        "$TMP/rootfs" "$TMP/rootfs.manifest"
+    rm -d "$TMP"
+  }
+  trap cleanup EXIT
   "$DIR/multifedora-extract" "$IMAGE" "$LUKS_PASSPHRASE" \
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
   "$DIR/multifedora-prime-yield" "$NAME" \
