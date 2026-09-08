@@ -88,6 +88,11 @@ chroot)
     exit 2
   }
   shift
+  if [[ ! -x $DIR/multifedora-chroot ]]; then
+    echo "ERROR: chroot commands not found; install the" \
+         "multifedora-chroot package" >&2
+    exit 1
+  fi
   exec "$DIR/multifedora-chroot" "$@"
   ;;
 chroot-secondary)
@@ -97,6 +102,11 @@ chroot-secondary)
     exit 2
   }
   shift
+  if [[ ! -x $DIR/multifedora-chroot-secondary ]]; then
+    echo "ERROR: chroot commands not found; install the" \
+         "multifedora-chroot package" >&2
+    exit 1
+  fi
   exec "$DIR/multifedora-chroot-secondary" "$@"
   ;;
 chroot-image)
@@ -106,6 +116,11 @@ chroot-image)
     exit 2
   }
   shift
+  if [[ ! -x $DIR/multifedora-chroot-image ]]; then
+    echo "ERROR: chroot commands not found; install the" \
+         "multifedora-chroot package" >&2
+    exit 1
+  fi
   exec "$DIR/multifedora-chroot-image" "$@"
   ;;
 *)

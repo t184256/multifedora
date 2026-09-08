@@ -37,6 +37,7 @@
       multifedoraScripts = pkgs.runCommand "multifedora-rpm-src" {} ''
         mkdir -p $out
         # store paths carry hash-prefixed names, so name the targets
+        cp ${./LICENSE} $out/LICENSE
         cp ${./multifedora} $out/multifedora
         cp ${./multifedora-extract} $out/multifedora-extract
         cp ${./multifedora-inject} $out/multifedora-inject
@@ -52,14 +53,22 @@
         cp ${./multifedora-yield.service} $out/multifedora-yield.service
       '';
 
+      # concoct something together from the ./copr specfile template
       multifedoraRpm = pkgs.runCommand "multifedora-0.1" {
-        nativeBuildInputs = [ pkgs.rpm ];
+        nativeBuildInputs = with pkgs; [ rpm gnused gnutar ];
       } ''
         TOPDIR=$(mktemp -d)
         mkdir -p $TOPDIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS,tmp,db}
-        cp ${./multifedora.spec} $TOPDIR/SPECS/multifedora.spec
+        sed -e "s|{{ver}}|0.0|g" \
+            -e "s|{{rel}}|0|g" \
+            -e "s|{{git_commit}}|nix|g" \
+            -e "s|{{tarball}}|multifedora-nix.tar.gz|g" \
+            ${./.copr/multifedora.template.spec} \
+            > $TOPDIR/SPECS/multifedora.spec
+        cp -r ${multifedoraScripts} $TOPDIR/SOURCES/multifedora-nix
+        tar -C $TOPDIR/SOURCES -czf $TOPDIR/SOURCES/multifedora-nix.tar.gz \
+          multifedora-nix
         rpmbuild --nodeps \
-          --define "srcdir ${multifedoraScripts}" \
           --define "_prefix /usr" --define "_topdir $TOPDIR" \
           --define "_unitdir /usr/lib/systemd/system" \
           --define "_tmppath $TOPDIR/tmp" --define "_dbpath $TOPDIR/db" \
