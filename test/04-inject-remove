@@ -61,6 +61,13 @@ sl=$(btrfs subvolume list "$S0" | sed -n 's/.*path multifedora\///p')
 [[ ! -e $S0/multifedora/example ]] \
   || { echo "multifedora/example still exists" >&2; rc=1; }
 
+/share/multifedora-remove nosuch 2>/dev/null \
+  && { echo "remove of a missing system did not fail" >&2; rc=1; }
+grep -q "menuentry '\*'" /boot/efi/EFI/fedora/grub.cfg \
+  && { echo "bogus * menu entry after remove" >&2; rc=1; }
+grep -q "menuentry '\[primary\]'" /boot/efi/EFI/fedora/grub.cfg \
+  || { echo "primary entry missing from the ESP menu" >&2; rc=1; }
+
 umount "$S0"; rm -rf "$S0"
 exit $rc
 EOF
