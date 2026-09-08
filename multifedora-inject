@@ -16,7 +16,7 @@ for f in "$STREAM" "$MANIFEST"; do
 done
 
 mkdir -p "$DEST"
-btrfs receive "$DEST" < "$STREAM"
+btrfs -q receive "$DEST" < "$STREAM"
 # reshuffle into the original hierarchy using the manifest,
 # parents come before children, clear ro before move
 while read -r path id flag; do

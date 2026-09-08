@@ -147,5 +147,5 @@ multifedora-esp-menu
 
 # clear the markers and reclaim the staging area
 rm -f "$LINK" "$MULTI/.next-yield-name"
-btrfs subvolume delete -R "$NEXT"
+btrfs -q subvolume delete -R "$NEXT"
 echo 'multifedora-yield: done; the primed system will boot next'

@@ -36,7 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 MULTI=$S0/multifedora
-[[ -d $MULTI ]] || btrfs subvolume create "$MULTI"
+[[ -d $MULTI ]] || btrfs -q subvolume create "$MULTI"
 
 [[ -e $MULTI/$NAME ]] && {
   echo "ERROR: multifedora/$NAME already exists" >&2

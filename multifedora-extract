@@ -66,12 +66,12 @@ done < <(btrfs subvolume list "$TMP")
 printf '%s\n' "${LINES[@]}" | LC_ALL=C sort > "$OUT_ROOT_BTRFS.manifest"
 
 while read -r path id flag; do
-  btrfs subvolume snapshot -r "$TMP/$path" "$TMP/$id"
+  btrfs -q subvolume snapshot -r "$TMP/$path" "$TMP/$id"
   SNAPS+=("$id")
 done < "$OUT_ROOT_BTRFS.manifest"
-btrfs send -e --proto 0 --compressed-data \
+btrfs -q send -e --proto 0 --compressed-data \
   -f "$OUT_ROOT_BTRFS" "${SNAPS[@]/#/$TMP/}"
-for sv in "${SNAPS[@]}"; do btrfs subvolume delete "$TMP/$sv"; done
+for sv in "${SNAPS[@]}"; do btrfs -q subvolume delete "$TMP/$sv"; done
 umount "$TMP"
 
 echo -n 'extracted: '

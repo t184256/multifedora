@@ -57,12 +57,12 @@ cleanup() {
 }
 trap cleanup EXIT
 MULTI=$S0/multifedora
-[[ -d $MULTI ]] || btrfs subvolume create "$MULTI"
+[[ -d $MULTI ]] || btrfs -q subvolume create "$MULTI"
 
 # (re)build the staging area
 NEXT=$MULTI/.next
-[[ -e $NEXT ]] && btrfs subvolume delete -R "$NEXT"
-btrfs subvolume create "$NEXT"
+[[ -e $NEXT ]] && btrfs -q subvolume delete -R "$NEXT"
+btrfs -q subvolume create "$NEXT"
 cp "$ESP" "$NEXT/"
 mkdir "$NEXT/subvols"
 multifedora-inject "$STREAM" "$MANIFEST" "$NEXT/subvols"
@@ -108,7 +108,7 @@ mv -f -T "$MULTI/.next-yield-this.tmp" "$MULTI/.next-yield-this"
 
 # the actual yield runs at shutdown via a unit, which the package installs
 # enable it so that it fires on the next shutdown
-systemctl enable multifedora-yield.service
+systemctl enable -q multifedora-yield.service
 
 echo "primed; the yield happens at the next shutdown"
 echo "current system will become $OLD_NAME"
