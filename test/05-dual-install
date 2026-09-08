@@ -91,6 +91,7 @@ echo primary > /etc/multifedora-marker
 S0=$(mktemp -d)
 mount -o subvolid=5 "$(findmnt -no SOURCE / | sed 's/\[.*\]//')" "$S0"
 echo example > "$S0/multifedora/example/root/etc/multifedora-marker"
+echo example-home > "$S0/multifedora/example/home/mf-home-marker"
 umount "$S0"; rm -rf "$S0"
 
 # idempotency: a second reseat must change nothing

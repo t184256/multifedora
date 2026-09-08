@@ -58,6 +58,7 @@ EXP
 # exercised through the chroot-next helper
 echo middle-primary > /etc/multifedora-marker
 multifedora-chroot-next sh -c 'echo new-primary-2 > /etc/multifedora-marker'
+multifedora-chroot-next mountpoint -q /home
 EOF
 chmod +x "$SHARE/run.sh"
 

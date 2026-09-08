@@ -59,6 +59,7 @@ EXP
 # exercised through the chroot-next helper
 echo old-primary > /etc/multifedora-marker
 multifedora-chroot-next sh -c 'echo new-primary > /etc/multifedora-marker'
+multifedora-chroot-next sh -c 'echo np-home > /home/mf-next-home'
 EOF
 chmod +x "$SHARE/run.sh"
 
@@ -80,6 +81,7 @@ SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" \
    cp /share/multifedora-list /usr/libexec/multifedora/ || rc=1
    L=/usr/libexec/multifedora/multifedora-list
    [[ $($L) == "$(echo \<primary\>; echo example)" ]] || rc=1
+   [[ $(cat /home/mf-next-home 2>/dev/null) == np-home ]] || rc=1
    sl=$(btrfs subvolume list /)
    grep -q " var/lib/test-subvol$" <<<"$sl" || rc=1
    grep -q " var/lib/test-subvol/nested$" <<<"$sl" || rc=1

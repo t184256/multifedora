@@ -50,6 +50,25 @@ multifedora chroot-secondary --read-only example test -d /boot/loader/entries \
 multifedora chroot-secondary --read-only example </dev/null \
   || { echo "chroot-secondary: default shell failed" >&2; rc=1; }
 
+out=$(multifedora chroot-secondary --read-only example cat /home/mf-home-marker)
+[[ $out == example-home ]] \
+  || { echo "chroot-secondary: /home not mounted: $out" >&2; rc=1; }
+multifedora chroot-secondary --read-write example \
+  sh -c 'echo from-chroot > /home/mf-rw' \
+  || { echo "chroot-secondary rw: write to /home failed" >&2; rc=1; }
+T=$(mktemp -d)
+mount -o subvolid=5 "$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')" "$T"
+grep -q from-chroot "$T/multifedora/example/home/mf-rw" \
+  || { echo "rw write did not land in the home subvolume" >&2; rc=1; }
+! grep -rq from-chroot "$T/multifedora/example/root/home" \
+  || { echo "rw write leaked into the root subvolume" >&2; rc=1; }
+umount "$T"; rm -d "$T"
+
+export LUKS_PASSPHRASE_COMMAND='echo example'
+out=$(multifedora chroot-image --read-only /share/second.img \
+      sh -c 'findmnt -no TARGET /home')
+[[ $out == /home ]] || { echo "chroot-image: /home not mounted" >&2; rc=1; }
+
 [[ $(multifedora list) == "$(echo \<primary\>; echo example)" ]] \
   || { echo "list check failed" >&2; rc=1; }
 if multifedora list --bogus 2>/dev/null; then
@@ -57,7 +76,6 @@ if multifedora list --bogus 2>/dev/null; then
 fi
 
 # chroot-image: read works, and --read-only makes writes fail
-export LUKS_PASSPHRASE_COMMAND='echo example'
 out=$(multifedora chroot-image --read-only /share/second.img \
       cat /var/lib/test-subvol/stamp)
 [[ -n $out && $out != "$host_stamp" ]] \

@@ -17,8 +17,12 @@ done
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
 ROOT=''
+EXTRA=()
 cleanup() {
   if [[ -n $ROOT ]]; then
+    for m in "${EXTRA[@]}"; do
+      umount "$m" || { echo "ERROR: cannot unmount $m" >&2; exit 1; }
+    done
     umount "$ROOT/boot" \
       || { echo "ERROR: cannot unmount $ROOT/boot" >&2; exit 1; }
     umount "$ROOT" || { echo "ERROR: cannot unmount $ROOT" >&2; exit 1; }
@@ -54,6 +58,22 @@ fi
 ROOT=$(mktemp -d /run/mf-next.XXXXXX)
 mount -o subvol=multifedora/.next/subvols/"$ROOTSV" "$BDEV" "$ROOT"
 mount --bind "$BOOT" "$ROOT/boot"
+
+# can't mount the entire fstab, since it's seated for primary;
+# differs from other chroots in that =/
+# mount at least the .next/subvols/ subvolumes we're aware of
+DISK_UUID=$(findmnt -no UUID "$BDEV" | head -1)
+while read -r dev mnt fstype opts _rest; do
+  [[ $mnt != / ]] || continue
+  if [[ $fstype == btrfs && $dev == "UUID=$DISK_UUID" ]]; then
+    sv=$(sed -n 's/.*subvol=\([^ ,]*\).*/\1/p' <<<"$opts")
+    if [[ -n $sv ]]; then
+      mkdir -p "$ROOT$mnt"
+      mount -o subvol="multifedora/.next/subvols/$sv" "$BDEV" "$ROOT$mnt"
+      EXTRA+=("$ROOT$mnt")
+    fi
+  fi
+done < "$ROOT/etc/fstab"
 
 NSPAWN=(systemd-nspawn -q --machine=next -D "$ROOT")
 [[ -t 0 ]] || NSPAWN+=(--console=pipe)  # don't allocate pty if non-interactive

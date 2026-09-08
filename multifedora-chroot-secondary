@@ -37,9 +37,13 @@ done
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
 ROOT=''
+EXTRA=()
 cleanup() {
   local rc=$?
   if [[ -n $ROOT ]]; then
+    for m in "${EXTRA[@]}"; do
+      umount "$m" || { echo "ERROR: cannot unmount $m" >&2; exit 1; }
+    done
     if mountpoint -q "$ROOT/boot/efi"; then
       umount "$ROOT/boot/efi" \
         || { echo "ERROR: cannot unmount $ROOT/boot/efi" >&2; exit 1; }
@@ -83,6 +87,27 @@ ROOT=$S0/multifedora/$NAME/$ROOTSV
   echo "ERROR: no root subvolume at multifedora/$NAME/$ROOTSV" >&2
   exit 1
 }
+
+DISK_UUID=$(findmnt -no UUID "$BDEV" | head -1)  # one line per mount; take the first
+while read -r dev mnt fstype opts _rest; do
+  if [[ $mnt == / ]]; then
+    continue  # already mounted as $ROOT
+  fi
+  if [[ $fstype == btrfs && $dev == "UUID=$DISK_UUID" ]]; then
+    sv=$(sed -n 's/.*subvol=\([^ ,]*\).*/\1/p' <<<"$opts")
+    if [[ -n $sv ]]; then
+      mkdir -p "$ROOT$mnt"
+      # ro has to be set at mount time: a btrfs subvolume mount cannot
+      # be remounted read-only by path afterwards
+      mopts="subvol=$sv"
+      if [[ $MODE == --read-only ]]; then
+        mopts+=",ro"
+      fi
+      mount -o "$mopts" "$BDEV" "$ROOT$mnt"
+      EXTRA+=("$ROOT$mnt")
+    fi
+  fi
+done < "$ROOT/etc/fstab"
 
 # the /boot tree is only writable in --read-write mode
 mount --bind "$BOOT" "$ROOT/boot"
