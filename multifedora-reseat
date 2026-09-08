@@ -329,7 +329,7 @@ if [[ -n $NAME ]]; then
   # fstab: namespace every subvol= path that lacks the prefix
   if sed -n 's/.*subvol=\([^,]*\).*/\1/p' "$ROOT/etc/fstab" \
      | grep -v "^multifedora/$NAME/" | grep -q .; then
-    sed -i -E "s|subvol=([^,]+),|subvol=multifedora/$NAME/\1,|" \
+    sed -i -E "s|subvol=([^, ]+)([ ,])|subvol=multifedora/$NAME/\1\2|" \
       "$ROOT/etc/fstab"
     echo "multifedora-reseat: namespaced the fstab subvolumes"
   else
