@@ -43,8 +43,9 @@ MULTI=$S0/multifedora
 
 multifedora-inject "$STREAM" "$MANIFEST" "$MULTI/$NAME"
 
+# the efi/ copy is dead weight: the shared ESP stays in place
 mkdir -p "/boot/multifedora/$NAME"
-tar xf "$BOOT_TAR" -C "/boot/multifedora/$NAME"
+tar xf "$BOOT_TAR" --exclude=./efi -C "/boot/multifedora/$NAME"
 
 multifedora-reseat "$NAME"
 multifedora-esp-menu
