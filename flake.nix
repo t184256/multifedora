@@ -51,6 +51,7 @@
         cp ${./multifedora-chroot} $out/multifedora-chroot
         cp ${./multifedora-chroot-image} $out/multifedora-chroot-image
         cp ${./multifedora-chroot-secondary} $out/multifedora-chroot-secondary
+        cp ${./multifedora-chroot-next} $out/multifedora-chroot-next
         cp ${./multifedora-yield.service} $out/multifedora-yield.service
       '';
 

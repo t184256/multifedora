@@ -80,12 +80,14 @@ ln -s %{_libexecdir}/multifedora/multifedora %{buildroot}%{_sbindir}/multifedora
 %exclude %{_libexecdir}/multifedora/multifedora-chroot
 %exclude %{_libexecdir}/multifedora/multifedora-chroot-image
 %exclude %{_libexecdir}/multifedora/multifedora-chroot-secondary
+%exclude %{_libexecdir}/multifedora/multifedora-chroot-next
 %{_libexecdir}/multifedora/*
 
 %files chroot
 %{_libexecdir}/multifedora/multifedora-chroot
 %{_libexecdir}/multifedora/multifedora-chroot-image
 %{_libexecdir}/multifedora/multifedora-chroot-secondary
+%{_libexecdir}/multifedora/multifedora-chroot-next
 
 # templated from build.sh
 %changelog

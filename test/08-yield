@@ -22,6 +22,7 @@ mkdir -p "$SHARE"
 cp ../multifedora-esp-menu ../multifedora-list ../multifedora-inject \
    ../multifedora-reseat ../multifedora-yield \
    ../multifedora-yield.service ../multifedora-prime-yield \
+   ../multifedora-chroot-next \
    tmp/03/second.esp.tar tmp/03/second.boot.tar \
    tmp/03/second.rootfs tmp/03/second.rootfs.manifest \
    "$SHARE/"
@@ -30,13 +31,15 @@ cat > "$SHARE/run.sh" <<'EOF'
 set -Eeuo pipefail
 cd /share
 install -d /usr/libexec/multifedora
-install -m755 multifedora-yield multifedora-list \
+install -m755 multifedora-yield multifedora-list multifedora-chroot-next \
   multifedora-reseat multifedora-esp-menu multifedora-inject \
   multifedora-prime-yield /usr/libexec/multifedora/
 # the shutdown unit (the package installs it on a real system)
 install -m644 multifedora-yield.service /etc/systemd/system/
 systemctl daemon-reload
 export PATH=/usr/libexec/multifedora:"$PATH"
+dnf -y -q install systemd-container \
+  || { echo "failed to install systemd-container" >&2; exit 1; }
 
 diff <(multifedora-list) - <<'EXP'
 <primary>
@@ -52,14 +55,10 @@ diff <(multifedora-list) - <<'EXP'
 <primary>  # primed to become a secondary named example
 EXP
 
-# identity markers: this (running) system, and the primed one (its root
-# subvolume, reached through a temporary mount of the staging area)
+# identity markers: this (running) system, and the primed one
+# exercised through the chroot-next helper
 echo old-primary > /etc/multifedora-marker
-BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')
-M=$(mktemp -d)
-mount -o subvol=multifedora/.next "$BDEV" "$M"
-echo new-primary > "$M/subvols/root/etc/multifedora-marker"
-umount "$M"
+multifedora-chroot-next sh -c 'echo new-primary > /etc/multifedora-marker'
 EOF
 chmod +x "$SHARE/run.sh"
 

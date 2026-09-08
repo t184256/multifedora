@@ -24,6 +24,7 @@ rm -rf "$SHARE"
 mkdir -p "$SHARE"
 cp ../multifedora-new-secondary ../multifedora-list ../multifedora-inject \
    ../multifedora-reseat ../multifedora-esp-menu \
+   ../multifedora-chroot-next \
    tmp/03/second.boot.tar tmp/03/second.rootfs \
    tmp/03/second.rootfs.manifest "$SHARE/"
 cat > "$SHARE/run.sh" <<'EOF'

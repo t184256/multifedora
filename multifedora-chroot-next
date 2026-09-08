@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Run a command in the primed next system (multifedora/.next), always rw.
+# A private helper: no parent CLI case.
+# usage: $0 [NSPAWN-OPTS] [COMMAND [ARG...]]
+
+set -Eeuo pipefail
+
+if [[ "$(id -u)" != 0 ]]; then
+  echo "ERROR: must run as root" >&2
+  exit 1
+fi
+
+for t in findmnt sed head mount systemd-nspawn; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+ROOT=''
+cleanup() {
+  if [[ -n $ROOT ]]; then
+    umount "$ROOT/boot" \
+      || { echo "ERROR: cannot unmount $ROOT/boot" >&2; exit 1; }
+    umount "$ROOT" || { echo "ERROR: cannot unmount $ROOT" >&2; exit 1; }
+    rm -d "$ROOT"
+  fi
+  umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  rm -d "$S0"
+}
+trap cleanup EXIT
+
+mount -o subvolid=5 "$BDEV" "$S0"
+NEXT=$S0/multifedora/.next
+if [[ ! -d $NEXT ]]; then
+  echo "ERROR: no primed system (multifedora/.next is missing)" >&2
+  exit 1
+fi
+BOOT=$NEXT/boot
+if [[ ! -d $BOOT/loader/entries ]]; then
+  echo "ERROR: no boot tree in multifedora/.next" >&2
+  exit 1
+fi
+ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
+  "$BOOT"/loader/entries/*.conf | head -1)
+if [[ -z $ROOTSV ]]; then
+  echo "ERROR: no root subvolume named in the BLS entries" >&2
+  exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+  set -- bash
+fi
+
+ROOT=$(mktemp -d /run/mf-next.XXXXXX)
+mount -o subvol=multifedora/.next/subvols/"$ROOTSV" "$BDEV" "$ROOT"
+mount --bind "$BOOT" "$ROOT/boot"
+
+NSPAWN=(systemd-nspawn -q --machine=next -D "$ROOT")
+[[ -t 0 ]] || NSPAWN+=(--console=pipe)  # don't allocate pty if non-interactive
+"${NSPAWN[@]}" "$@"
