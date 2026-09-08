@@ -33,10 +33,8 @@ btrfs subvolume list / 2>/dev/null | grep -Fq "path multifedora/$TARGET/" \
 img=0
 [[ -f $TARGET ]] && img=1
 if (( sys && img )); then
-  {
-    echo "ERROR: '$TARGET' is both a system and a file; use"
-    echo "chroot-secondary or chroot-image"
-  } >&2
+  echo "ERROR: '$TARGET' is both a system and a file; use" \
+       "chroot-secondary or chroot-image" >&2
   exit 1
 elif (( sys )); then
   exec multifedora-chroot-secondary "$MODE" "$TARGET" "$@"

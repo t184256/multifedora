@@ -46,8 +46,7 @@ add)
 
   TMP=$(mktemp -d)
   cleanup() {
-    rm -f "$TMP/esp.tar" "$TMP/boot.tar" \
-        "$TMP/rootfs" "$TMP/rootfs.manifest"
+    rm -f "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs" "$TMP/rootfs.manifest"
     rm -d "$TMP"
   }
   trap cleanup EXIT
