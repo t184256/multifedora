@@ -22,7 +22,7 @@ cp --sparse=always tmp/01/initial.img "$WORK"
 SHARE=tmp/05/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
-cp ../multifedora-new-secondary ../multifedora-inject \
+cp ../multifedora-new-secondary ../multifedora-list ../multifedora-inject \
    ../multifedora-reseat ../multifedora-esp-menu \
    tmp/03/second.boot.tar tmp/03/second.rootfs \
    tmp/03/second.rootfs.manifest "$SHARE/"
@@ -34,8 +34,17 @@ install -d /usr/libexec/multifedora
 install -m755 multifedora-* /usr/libexec/multifedora/
 export PATH=/usr/libexec/multifedora:"$PATH"
 
+diff <(multifedora-list) - <<'EXP'
+<primary>
+EXP
+
 multifedora-new-secondary example \
   /share/second.boot.tar /share/second.rootfs /share/second.rootfs.manifest
+
+diff <(multifedora-list) - <<'EXP'
+<primary>
+example
+EXP
 
 # verify the seated system: namespaced BLS pointing at this disk,
 # an initramfs that knows this disk's LUKS, and a menu entry on the ESP

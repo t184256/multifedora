@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# List the systems on this disk: next (if any), primed, secondaries.
+# usage: $0
+
+set -Eeuo pipefail
+
+for t in findmnt mount sed; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+mount -o subvolid=5 "$BDEV" "$S0"
+cleanup() {
+  umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  rm -d "$S0"
+}
+trap cleanup EXIT
+MULTI=$S0/multifedora
+
+if [[ -L $MULTI/.next-yield-this ]]; then
+  echo '<next>     # primed to become the next primary'
+fi
+if [[ -f $MULTI/.next-yield-name ]]; then
+  NEXT_NAME=$(cat "$MULTI/.next-yield-name")
+  echo "<primary>  # primed to become a secondary named $NEXT_NAME"
+else
+  echo '<primary>'
+fi
+
+# secondaries
+if [[ -d $MULTI ]]; then
+  for d in "$MULTI"/*; do
+    [[ -d $d ]] || continue
+    echo "${d##*/}"
+  done
+fi

@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # multifedora: manage secondary systems under multifedora/.
-# usage: $0 add SECONDARY_NAME IMAGE    install a system from a disk image
-#        $0 remove SECONDARY            delete a system and free its space
-#        $0 prime-pivot OLD_NAME IMAGE  at the next shutdown, make the
-#                                       image the primary system and
+# usage:
+#   $0 add SECONDARY_NAME IMAGE         install a system from a disk image
+#   $0 remove SECONDARY                 delete a system and free its space
+#   $0 prime-pivot OLD_NAME IMAGE       at the next shutdown, make the image
+#                                       the primary system and
 #                                       stash the running one as OLD_NAME
+#   $0 list                             list the systems on this disk
+#   $0 chroot MODE TARGET [OPTS] CMD    run a command in a secondary or image
+#   $0 chroot-secondary MODE NAME ...   run a command in a secondary system
+#   $0 chroot-image MODE IMAGE ...      run a command in a disk image"
 
 set -Eeuo pipefail
 
@@ -19,6 +24,7 @@ USAGE="usage: $0 COMMAND
   prime-pivot OLD_NAME IMAGE      at the next shutdown, make the image
                                   the primary system and stash the running
                                   one as a secondary one under OLD_NAME
+  list                            list the systems on this disk
   chroot MODE TARGET [OPTS] CMD   run a command in a secondary or image
   chroot-secondary MODE NAME ...  run a command in a secondary system
   chroot-image MODE IMAGE ...     run a command in a disk image"
@@ -89,6 +95,10 @@ prime-pivot)
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
   "$DIR/multifedora-prime-yield" "$NAME" \
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs" "$TMP/rootfs.manifest"
+  ;;
+list)
+  [[ $# -eq 1 ]] || { echo "usage: $0 list" >&2; exit 2; }
+  "$DIR/multifedora-list"
   ;;
 chroot)
   [[ $# -ge 3 ]] || {

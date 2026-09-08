@@ -17,7 +17,7 @@ cp --sparse=always tmp/08/yielded.img "$WORK"
 SHARE=tmp/09/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
-cp ../multifedora-esp-menu ../multifedora-inject \
+cp ../multifedora-esp-menu ../multifedora-list ../multifedora-inject \
    ../multifedora-reseat ../multifedora-yield \
    ../multifedora-yield.service ../multifedora-prime-yield \
    tmp/03/second.esp.tar tmp/03/second.boot.tar \
@@ -28,16 +28,29 @@ cat > "$SHARE/run.sh" <<'EOF'
 set -Eeuo pipefail
 cd /share
 install -d /usr/libexec/multifedora
-install -m755 multifedora-yield \
-  multifedora-reseat multifedora-esp-menu multifedora-inject \
-  multifedora-prime-yield /usr/libexec/multifedora/
+install -m755 multifedora-yield multifedora-list multifedora-reseat \
+	      multifedora-esp-menu multifedora-inject multifedora-prime-yield \
+	      /usr/libexec/multifedora/
 # the shutdown unit (the package installs it on a real system)
 install -m644 multifedora-yield.service /etc/systemd/system/
 systemctl daemon-reload
 export PATH=/usr/libexec/multifedora:"$PATH"
+
+diff <(multifedora-list) - <<'EXP'
+<primary>
+example
+EXP
+
 multifedora-prime-yield second \
   /share/second.esp.tar /share/second.boot.tar /share/second.rootfs \
   /share/second.rootfs.manifest
+
+diff <(multifedora-list) - <<'EXP'
+<next>     # primed to become the next primary
+<primary>  # primed to become a secondary named second
+example
+EXP
+
 # identity markers: this (running) system, and the primed one
 echo middle-primary > /etc/multifedora-marker
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')
@@ -54,7 +67,7 @@ SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
 # default boot is the new primary; ESP now lists three entries and
 # both stashed systems are in place
 # shellcheck disable=SC2016  # expands in the VM
-./tool-spin-up "$WORK" \
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" \
   'rc=0
    test "$(cat /etc/multifedora-marker)" = new-primary-2 || rc=1
    grep -q "rootflags=subvol=root" /proc/cmdline || rc=1
@@ -68,6 +81,10 @@ SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
    umount "$T" 2>/dev/null
    grep -q " multifedora/example/root$" <<<"$tsl" || rc=1
    grep -q " multifedora/second/root$" <<<"$tsl" || rc=1
+   mkdir -p /usr/libexec/multifedora
+   cp /share/multifedora-list /usr/libexec/multifedora/ || rc=1
+   L=/usr/libexec/multifedora/multifedora-list
+   [[ $($L) == "$(echo \<primary\>; echo example; echo second)" ]] || rc=1
    [[ $rc -eq 0 ]] && echo YIELD2-OK
    exit $rc'
 
@@ -78,6 +95,8 @@ GRUB_DOWN_COUNT=1 ./tool-spin-up "$WORK" \
    test "$(cat /etc/multifedora-marker)" = old-primary || rc=1
    grep -q "rootflags=subvol=multifedora/example/root" /proc/cmdline \
      || rc=1
+   L=/usr/libexec/multifedora/multifedora-list
+   [[ $($L) == "$(echo \<primary\>; echo example; echo second)" ]] || rc=1
    [[ $rc -eq 0 ]] && echo STASHED-EXAMPLE-OK
    exit $rc'
 
@@ -88,6 +107,8 @@ GRUB_DOWN_COUNT=2 ./tool-spin-up "$WORK" \
    test "$(cat /etc/multifedora-marker)" = middle-primary || rc=1
    grep -q "rootflags=subvol=multifedora/second/root" /proc/cmdline \
      || rc=1
+   L=/usr/libexec/multifedora/multifedora-list
+   [[ $($L) == "$(echo \<primary\>; echo example; echo second)" ]] || rc=1
    [[ $rc -eq 0 ]] && echo STASHED-SECOND-OK
    exit $rc'
 

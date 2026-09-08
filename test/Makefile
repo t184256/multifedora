@@ -49,6 +49,7 @@ tmp/04/ok: $(VM_TOOLS)
 # success (a failed run leaves tmp.img behind and make re-runs)
 tmp/05/dual.img: tmp/01/initial.img $(EXTRACTED) 05-dual-install
 tmp/05/dual.img: ../multifedora-new-secondary ../multifedora-inject
+tmp/05/dual.img: ../multifedora-list
 tmp/05/dual.img: ../multifedora-reseat ../multifedora-esp-menu
 tmp/05/dual.img: $(VM_TOOLS)
 	./05-dual-install
@@ -63,6 +64,7 @@ tmp/07/ok: $(VM_TOOLS)
 
 tmp/08/yielded.img: tmp/01/initial.img $(EXTRACTED) 08-yield
 tmp/08/yielded.img: ../multifedora-prime-yield ../multifedora-inject
+tmp/08/yielded.img: ../multifedora-list
 tmp/08/yielded.img: ../multifedora-reseat ../multifedora-esp-menu
 tmp/08/yielded.img: ../multifedora-yield ../multifedora-yield.service
 tmp/08/yielded.img: $(VM_TOOLS)
@@ -70,13 +72,14 @@ tmp/08/yielded.img: $(VM_TOOLS)
 
 tmp/09/ok: tmp/08/yielded.img 09-yield-again
 tmp/09/ok: ../multifedora-prime-yield ../multifedora-inject
+tmp/09/ok: ../multifedora-list
 tmp/09/ok: ../multifedora-reseat ../multifedora-esp-menu
 tmp/09/ok: ../multifedora-yield ../multifedora-yield.service
 tmp/09/ok: $(EXTRACTED) $(VM_TOOLS)
 	./09-yield-again
 
 tmp/10/ok: tmp/05/dual.img tmp/02/second.img 10-chroot
-tmp/10/ok: ../multifedora ../multifedora-chroot
+tmp/10/ok: ../multifedora ../multifedora-list ../multifedora-chroot
 tmp/10/ok: ../multifedora-chroot-image ../multifedora-chroot-secondary
 tmp/10/ok: $(VM_TOOLS)
 	./10-chroot

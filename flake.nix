@@ -44,6 +44,7 @@
         cp ${./multifedora-esp-menu} $out/multifedora-esp-menu
         cp ${./multifedora-new-secondary} $out/multifedora-new-secondary
         cp ${./multifedora-prime-yield} $out/multifedora-prime-yield
+        cp ${./multifedora-list} $out/multifedora-list
         cp ${./multifedora-remove} $out/multifedora-remove
         cp ${./multifedora-reseat} $out/multifedora-reseat
         cp ${./multifedora-yield} $out/multifedora-yield

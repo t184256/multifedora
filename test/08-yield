@@ -19,7 +19,7 @@ cp --sparse=always tmp/01/initial.img "$WORK"
 SHARE=tmp/08/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
-cp ../multifedora-esp-menu ../multifedora-inject \
+cp ../multifedora-esp-menu ../multifedora-list ../multifedora-inject \
    ../multifedora-reseat ../multifedora-yield \
    ../multifedora-yield.service ../multifedora-prime-yield \
    tmp/03/second.esp.tar tmp/03/second.boot.tar \
@@ -30,16 +30,28 @@ cat > "$SHARE/run.sh" <<'EOF'
 set -Eeuo pipefail
 cd /share
 install -d /usr/libexec/multifedora
-install -m755 multifedora-yield \
+install -m755 multifedora-yield multifedora-list \
   multifedora-reseat multifedora-esp-menu multifedora-inject \
   multifedora-prime-yield /usr/libexec/multifedora/
 # the shutdown unit (the package installs it on a real system)
 install -m644 multifedora-yield.service /etc/systemd/system/
 systemctl daemon-reload
 export PATH=/usr/libexec/multifedora:"$PATH"
+
+diff <(multifedora-list) - <<'EXP'
+<primary>
+EXP
+
 multifedora-prime-yield example \
   /share/second.esp.tar /share/second.boot.tar /share/second.rootfs \
   /share/second.rootfs.manifest
+
+# the yield is primed: next is staged, primary will be stashed as example
+diff <(multifedora-list) - <<'EXP'
+<next>     # primed to become the next primary
+<primary>  # primed to become a secondary named example
+EXP
+
 # identity markers: this (running) system, and the primed one (its root
 # subvolume, reached through a temporary mount of the staging area)
 echo old-primary > /etc/multifedora-marker
@@ -59,12 +71,16 @@ SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
 # menu lists two entries. The fixture subvolumes ride along under
 # root, with their nesting and ro flag intact.
 # shellcheck disable=SC2016  # expands in the VM
-./tool-spin-up "$WORK" \
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" \
   'rc=0
    test "$(cat /etc/multifedora-marker)" = new-primary || rc=1
    grep -q "rootflags=subvol=root" /proc/cmdline || rc=1
    ! grep -q "\.real-boot" /etc/fstab || rc=1
    [[ $(grep -c menuentry /boot/efi/EFI/BOOT/grub.cfg) == 2 ]] || rc=1
+   mkdir -p /usr/libexec/multifedora
+   cp /share/multifedora-list /usr/libexec/multifedora/ || rc=1
+   L=/usr/libexec/multifedora/multifedora-list
+   [[ $($L) == "$(echo \<primary\>; echo example)" ]] || rc=1
    sl=$(btrfs subvolume list /)
    grep -q " var/lib/test-subvol$" <<<"$sl" || rc=1
    grep -q " var/lib/test-subvol/nested$" <<<"$sl" || rc=1
@@ -91,6 +107,8 @@ GRUB_DOWN_COUNT=1 ./tool-spin-up "$WORK" \
    test "$(cat /etc/multifedora-marker)" = old-primary || rc=1
    grep -q "rootflags=subvol=multifedora/example/root" /proc/cmdline \
      || rc=1
+   L=/usr/libexec/multifedora/multifedora-list
+   [[ $($L) == "$(echo \<primary\>; echo example)" ]] || rc=1
    grep -q "\.real-boot/multifedora/example /boot none bind" \
      /etc/fstab || rc=1
    ls /boot/vmlinuz-* >/dev/null || rc=1

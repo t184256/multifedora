@@ -15,8 +15,8 @@ cp --sparse=always tmp/05/dual.img "$WORK"
 SHARE=tmp/10/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
-for f in multifedora multifedora-chroot multifedora-chroot-image \
-         multifedora-chroot-secondary; do
+for f in multifedora multifedora-list multifedora-chroot \
+         multifedora-chroot-image multifedora-chroot-secondary; do
   cp "../$f" "$SHARE/"
 done
 cp tmp/02/second.img "$SHARE/"
@@ -49,6 +49,12 @@ multifedora chroot-secondary --read-only example test -d /boot/loader/entries \
 # with no command at all, a (non-interactive) root shell runs and exits
 multifedora chroot-secondary --read-only example </dev/null \
   || { echo "chroot-secondary: default shell failed" >&2; rc=1; }
+
+[[ $(multifedora list) == "$(echo \<primary\>; echo example)" ]] \
+  || { echo "list check failed" >&2; rc=1; }
+if multifedora list --bogus 2>/dev/null; then
+  echo "list accepted an argument" >&2; rc=1
+fi
 
 # chroot-image: read works, and --read-only makes writes fail
 export LUKS_PASSPHRASE_COMMAND='echo example'
