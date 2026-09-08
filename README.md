@@ -39,7 +39,7 @@ until you relegate it to a secondary by installing a new primary.
 
 Assumes default encrypted btrfs Fedora Workstation disk layout,
 with that last-century GRUB bootloader, ESP partition, all that cruft.
-If you installed Fedora with graphics, that's the defaults currently.
+If you've installed Fedora with graphics, that's the defaults currently.
 
 ## Installation
 
