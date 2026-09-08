@@ -16,7 +16,7 @@ DIR=$(dirname "$(readlink -f "$0")")
 export PATH="$DIR:$PATH"
 
 command -v btrfs findmnt mountpoint tar cp sed basename unshare mount \
-  readlink cut >/dev/null
+  readlink >/dev/null
 
 # run in a private mount namespace: systemd (in the root namespace)
 # creates implicit .mount units for mounts made with mount(8),
@@ -76,6 +76,10 @@ done < <(btrfs subvolume list "$S0")
 
 # put the primed subvolumes in place
 for sv in "$NEXT"/subvols/*; do
+  if [[ -e $S0/$(basename "$sv") ]]; then
+    echo "ERROR: top-level name taken: $(basename "$sv")" >&2
+    exit 1
+  fi
   mv "$sv" "$S0/$(basename "$sv")"
 done
 
@@ -90,9 +94,9 @@ fstab_src() { # $1=mountpoint $2=file
   done < "$2"
   return 1
 }
-A_BOOT_UUID=$(fstab_src /boot /etc/fstab | cut -d= -f2)
-A_ESP_UUID=$(fstab_src /boot/efi /etc/fstab | cut -d= -f2)
-mountpoint -q /boot || mount "/dev/disk/by-uuid/$A_BOOT_UUID" /boot
+A_BOOT_SRC=$(fstab_src /boot /etc/fstab)
+A_ESP_SRC=$(fstab_src /boot/efi /etc/fstab)
+mountpoint -q /boot || mount "$A_BOOT_SRC" /boot
 
 # stash the running /boot contents (except multifedora/ and efi/)
 echo "multifedora-yield: stashing /boot, bringing in the primed boot tree"
@@ -101,8 +105,10 @@ find /boot -mindepth 1 -maxdepth 1 ! -name multifedora ! -name efi \
   -exec mv -t "/boot/multifedora/$NAME/" {} +
 # efi/ may have a mount on top of it
 if [[ -d /boot/efi ]]; then
-  umount /boot/efi 2>/dev/null || true
-  mv /boot/efi "/boot/multifedora/$NAME/" 2>/dev/null \
+  if mountpoint -q /boot/efi; then
+    umount /boot/efi || { echo "ERROR: cannot unmount /boot/efi" >&2; exit 1; }
+  fi
+  mv /boot/efi "/boot/multifedora/$NAME/" \
     || mkdir -p "/boot/multifedora/$NAME/efi"
 fi
 
@@ -126,7 +132,7 @@ done
 
 cp -a "$NEXT/boot/." /boot/
 mkdir -p /boot/efi
-mountpoint -q /boot/efi || mount "/dev/disk/by-uuid/$A_ESP_UUID" /boot/efi
+mountpoint -q /boot/efi || mount "$A_ESP_SRC" /boot/efi
 
 # run reseat (just in case, prime should've done it already)
 echo 'multifedora-yield: seating the stashed system'
