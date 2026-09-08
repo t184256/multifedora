@@ -133,11 +133,16 @@ fi
 if [[ $rebuild_initramfs -eq 1 ]]; then
   echo "multifedora-reseat: rebuilding the initramfs"
   # dracut's hostonly filter drops any crypttab entry whose device it
-  # cannot match to a LUKS device in the chroot; 'force' keeps ours
-  if ! grep "^luks-$LUKS_UUID " "$ROOT/etc/crypttab" | grep -q 'force$'; then
-    sed -i "/^luks-$LUKS_UUID / s/ \([^ ]*\)$/ \1,force/" \
-      "$ROOT/etc/crypttab"
-  fi
+  # cannot match to a LUKS device in the chroot; 'force' keeps ours;
+  # field might be missing
+  read -r _cn _cu _ck copts \
+    < <(grep "^luks-$LUKS_UUID " "$ROOT/etc/crypttab" | head -1) || true
+  case ${copts-} in
+  *force*) ;;
+  '') sed -i "/^luks-$LUKS_UUID /" 's/$/ force/' "$ROOT/etc/crypttab" ;;
+  *) sed -i "/^luks-$LUKS_UUID / s/ \([^ ]*\)$/ \1,force/" \
+     "$ROOT/etc/crypttab" ;;
+  esac
   KVER=$(sed -n 's|^linux .*/vmlinuz-\([^ ]*\).*|\1|p' \
     "$BOOT"/loader/entries/*.conf | head -1)
   [[ -n $KVER ]] || {
