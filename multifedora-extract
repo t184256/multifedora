@@ -23,6 +23,8 @@ OUT_ESP_TAR=$3
 OUT_BOOT_TAR=$4
 OUT_ROOT_BTRFS=$5
 
+cryptsetup close fedroot 2>/dev/null || true
+
 LO=$(losetup --find --show --partscan "$IMG")
 TMP=$(mktemp -d)
 SNAPS=()
