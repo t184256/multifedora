@@ -335,10 +335,12 @@ if [[ -n $NAME ]]; then
 
   # fstab: mount the shared /boot partition at /.real-boot
   # and bind our namespaced directory to /boot
-  if grep -qE "^UUID=[^\s]* /boot(\s|\$)" "$ROOT/etc/fstab"; then
-    sed -i -E "/^UUID=[^\s]* \/boot(\s|\$)/ \
-s|^([^\s]+) /boot(.*)$|\\1 /.real-boot\\2\n\
-/.real-boot/multifedora/$NAME /boot none bind 0 0|" \
+  if grep -qE '^UUID=[^\s]* /boot(\s|\$)' "$ROOT/etc/fstab"; then
+    boot_re='^UUID=[^\s]* \/boot(\s|$)'
+    bind_line="/.real-boot/multifedora/$NAME /boot none bind 0 0"
+    sed -i -E \
+      -e "/$boot_re/a\\"$'\n'"$bind_line" \
+      -e "/$boot_re/ s|^([^\s]+) /boot(.*)$|\\1 /.real-boot\\2|" \
       "$ROOT/etc/fstab"
     echo "multifedora-reseat: split the /boot mount into a bind pair"
   else
