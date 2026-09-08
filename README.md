@@ -41,6 +41,13 @@ Assumes default encrypted btrfs Fedora Workstation disk layout,
 with that last-century GRUB bootloader, ESP partition, all that cruft.
 If you installed Fedora with graphics, that's the defaults currently.
 
+## Installation
+
+```
+dnf copr enable asosedkin/multifedora
+dnf install multifedora multifedora-chroot
+```
+
 ## Disclaimer
 
 MAKE SURE YOUR BACKUPS ARE UP TO DATE FIRST,
