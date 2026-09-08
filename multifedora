@@ -14,11 +14,14 @@ DIR=$(dirname "$(readlink -f "$0")")
 export PATH="$DIR:$PATH"
 USAGE="usage: $0 COMMAND
 
-  add SECONDARY_NAME IMAGE    install a system from a disk image
-  remove SECONDARY            delete a system and free its space
-  prime-pivot OLD_NAME IMAGE  at the next shutdown, make the image
-                              the primary system and stash the running
-                              one as OLD_NAME"
+  add SECONDARY_NAME IMAGE        install a system from a disk image
+  remove SECONDARY                delete a system and free its space
+  prime-pivot OLD_NAME IMAGE      at the next shutdown, make the image
+                                  the primary system and stash the running
+                                  one as a secondary one under OLD_NAME
+  chroot MODE TARGET [OPTS] CMD   run a command in a secondary or image
+  chroot-secondary MODE NAME ...  run a command in a secondary system
+  chroot-image MODE IMAGE ...     run a command in a disk image"
 
 [[ $# -ge 1 ]] || { echo "$USAGE" >&2; exit 2; }
 
@@ -29,7 +32,10 @@ add)
   IMAGE=$3
   [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
 
-  if [[ -z ${LUKS_PASSPHRASE-} ]]; then
+  # passphrase: env, a command that prints it (image path as $1), or prompt
+  if [[ -z ${LUKS_PASSPHRASE-} && -n ${LUKS_PASSPHRASE_COMMAND-} ]]; then
+    LUKS_PASSPHRASE=$(sh -c "$LUKS_PASSPHRASE_COMMAND" "$IMAGE")
+  elif [[ -z ${LUKS_PASSPHRASE-} ]]; then
     [[ -t 0 ]] || {
       echo "ERROR: no LUKS_PASSPHRASE and no tty to prompt on" >&2
       exit 1
@@ -56,7 +62,10 @@ prime-pivot)
   IMAGE=$3
   [[ -f $IMAGE ]] || { echo "ERROR: no such image: $IMAGE" >&2; exit 1; }
 
-  if [[ -z ${LUKS_PASSPHRASE-} ]]; then
+  # passphrase: env, a command that prints it (image path as $1), or prompt
+  if [[ -z ${LUKS_PASSPHRASE-} && -n ${LUKS_PASSPHRASE_COMMAND-} ]]; then
+    LUKS_PASSPHRASE=$(sh -c "$LUKS_PASSPHRASE_COMMAND" "$IMAGE")
+  elif [[ -z ${LUKS_PASSPHRASE-} ]]; then
     [[ -t 0 ]] || {
       echo "ERROR: no LUKS_PASSPHRASE and no tty to prompt on" >&2
       exit 1
@@ -71,6 +80,33 @@ prime-pivot)
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs"
   "$DIR/multifedora-prime-yield" "$NAME" \
     "$TMP/esp.tar" "$TMP/boot.tar" "$TMP/rootfs" "$TMP/rootfs.manifest"
+  ;;
+chroot)
+  [[ $# -ge 3 ]] || {
+    echo "usage: $0 chroot --read-only|--read-write" \
+         "TARGET [OPTS] CMD [ARGS...]" >&2
+    exit 2
+  }
+  shift
+  exec "$DIR/multifedora-chroot" "$@"
+  ;;
+chroot-secondary)
+  [[ $# -ge 3 ]] || {
+    echo "usage: $0 chroot-secondary --read-only|--read-write" \
+         "NAME [OPTS] CMD [ARGS...]" >&2
+    exit 2
+  }
+  shift
+  exec "$DIR/multifedora-chroot-secondary" "$@"
+  ;;
+chroot-image)
+  [[ $# -ge 3 ]] || {
+    echo "usage: $0 chroot-image --read-only|--read-write" \
+         "IMAGE [OPTS] CMD [ARGS...]" >&2
+    exit 2
+  }
+  shift
+  exec "$DIR/multifedora-chroot-image" "$@"
   ;;
 *)
   echo "$USAGE" >&2

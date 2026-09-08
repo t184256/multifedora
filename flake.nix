@@ -46,6 +46,9 @@
         cp ${./multifedora-remove} $out/multifedora-remove
         cp ${./multifedora-reseat} $out/multifedora-reseat
         cp ${./multifedora-yield} $out/multifedora-yield
+        cp ${./multifedora-chroot} $out/multifedora-chroot
+        cp ${./multifedora-chroot-image} $out/multifedora-chroot-image
+        cp ${./multifedora-chroot-secondary} $out/multifedora-chroot-secondary
         cp ${./multifedora-yield.service} $out/multifedora-yield.service
       '';
 

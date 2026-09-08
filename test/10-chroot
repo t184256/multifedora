@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Stage 10: test multifedora chroot / chroot-secondary / chroot-image.
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/05/dual.img ]] || die "no tmp/05/dual.img; run stage 05 first"
+[[ -f tmp/02/second.img ]] || die "no tmp/02/second.img; run stage 02 first"
+
+WORK=tmp/10/tmp.img
+mkdir -p tmp/10
+cp --sparse=always tmp/05/dual.img "$WORK"
+
+SHARE=tmp/10/share
+rm -rf "$SHARE"
+mkdir -p "$SHARE"
+for f in multifedora multifedora-chroot multifedora-chroot-image \
+         multifedora-chroot-secondary; do
+  cp "../$f" "$SHARE/"
+done
+cp tmp/02/second.img "$SHARE/"
+cat > "$SHARE/run.sh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+rc=0
+
+dnf -y -q install systemd-container \
+  || { echo "failed to install systemd-container" >&2; exit 1; }
+
+# install the tools where the package would put them
+mkdir -p /usr/libexec/multifedora
+cp /share/multifedora* /usr/libexec/multifedora/
+ln -sf /usr/libexec/multifedora/multifedora /usr/sbin/multifedora
+export PATH=/usr/libexec/multifedora:$PATH
+
+# the install-time stamp differs between the running system and the
+# image, so it proves we are in the chrooted root and not our own
+host_stamp=$(cat /var/lib/test-subvol/stamp)
+
+# chroot-secondary: a command in the installed secondary
+out=$(multifedora chroot-secondary --read-only example \
+      cat /var/lib/test-subvol/stamp)
+[[ -n $out && $out != "$host_stamp" ]] \
+  || { echo "chroot-secondary stamp check failed: $out" >&2; rc=1; }
+multifedora chroot-secondary --read-only example test -d /boot/loader/entries \
+  || { echo "chroot-secondary: no /boot inside" >&2; rc=1; }
+# with no command at all, a (non-interactive) root shell runs and exits
+multifedora chroot-secondary --read-only example </dev/null \
+  || { echo "chroot-secondary: default shell failed" >&2; rc=1; }
+
+# chroot-image: read works, and --read-only makes writes fail
+export LUKS_PASSPHRASE_COMMAND='echo example'
+out=$(multifedora chroot-image --read-only /share/second.img \
+      cat /var/lib/test-subvol/stamp)
+[[ -n $out && $out != "$host_stamp" ]] \
+  || { echo "chroot-image stamp check failed: $out" >&2; rc=1; }
+multifedora chroot-image --read-only /share/second.img \
+  bash -c 'touch /x' </dev/null 2>/dev/null \
+  && { echo "chroot-image: write succeeded in a ro chain" >&2; rc=1; }
+
+# autodetect:
+# * file in the CWD -> image,
+# * system name -> secondary,
+# * both -> refuse to proceed
+cd /share
+multifedora chroot --read-only second.img true \
+  || { echo "chroot: file target did not route to the image" >&2; rc=1; }
+multifedora chroot --read-only example true </dev/null \
+  || { echo "chroot: name target did not route to the secondary" >&2; rc=1; }
+cp second.img example
+multifedora chroot --read-only example true </dev/null 2>/dev/null \
+  && { echo "chroot: ambiguous target was not refused" >&2; rc=1; }
+rm -f example
+multifedora chroot --read-only nonex true </dev/null 2>/dev/null \
+  && { echo "chroot: unknown target was not refused" >&2; rc=1; }
+
+# the parent must reject a missing or bogus MODE
+multifedora chroot example true 2>/dev/null \
+  && { echo "parent: missing MODE was accepted" >&2; rc=1; }
+multifedora chroot --bogus example true 2>/dev/null \
+  && { echo "parent: bad MODE was accepted" >&2; rc=1; }
+
+# and the leaves must reject a non-root caller
+su -s /bin/bash nobody -c 'multifedora chroot --read-only example true' \
+  </dev/null 2>/dev/null \
+  && { echo "chroot: non-root was accepted" >&2; rc=1; }
+
+# nspawn options must reach nspawn, ahead of the command
+out=$(multifedora chroot-secondary --read-only example \
+      --setenv MFOPT=passed bash -c 'echo $MFOPT')
+[[ $out == passed ]] \
+  || { echo "nspawn option pass-through failed: $out" >&2; rc=1; }
+
+# a failing command must propagate its status and leak no mounts
+before=$(findmnt --noheadings | wc -l)
+multifedora chroot-secondary --read-only example false </dev/null 2>/dev/null \
+  && { echo "chroot-secondary: false did not fail" >&2; rc=1; }
+after=$(findmnt --noheadings | wc -l)
+[[ $before == "$after" ]] \
+  || { echo "chroot-secondary: mounts leaked" >&2; rc=1; }
+
+# --read-write: writes land in the real subvolumes, and persist
+multifedora chroot-secondary --read-write example \
+  bash -c 'touch /rw-marker && touch /boot/rw-boot-marker' \
+  || { echo "chroot-secondary rw: write failed" >&2; rc=1; }
+multifedora chroot-secondary --read-only example \
+  bash -c 'test -f /rw-marker && test -f /boot/rw-boot-marker' \
+  || { echo "chroot-secondary rw: writes did not persist" >&2; rc=1; }
+# but the shared ESP stays read-only even in this mode
+multifedora chroot-secondary --read-write example \
+  bash -c 'touch /boot/efi/should-fail' </dev/null 2>/dev/null \
+  && { echo "chroot-secondary rw: ESP write succeeded" >&2; rc=1; }
+
+# --read-write on an image, against a copy so the original is untouched
+cp --sparse=always /share/second.img /rw.img
+multifedora chroot-image --read-write /rw.img bash -c 'touch /rw-marker' \
+  || { echo "chroot-image rw: write failed" >&2; rc=1; }
+multifedora chroot-image --read-only /rw.img test -f /rw-marker \
+  || { echo "chroot-image rw: write did not persist" >&2; rc=1; }
+
+# a wrong passphrase must fail and leak no loop, mapper or workdir
+LUKS_PASSPHRASE_COMMAND='echo wrong' multifedora chroot-image --read-only \
+  /share/second.img true </dev/null 2>/dev/null \
+  && { echo "chroot-image: wrong passphrase was accepted" >&2; rc=1; }
+losetup -a | grep -q second.img \
+  && { echo "chroot-image: loop device leaked" >&2; rc=1; }
+ls /dev/mapper/ | grep -q mfimg \
+  && { echo "chroot-image: mapper leaked" >&2; rc=1; }
+ls -d /run/mf-chroot-image.* 2>/dev/null \
+  && { echo "chroot-image: workdir leaked" >&2; rc=1; }
+
+exit $rc
+EOF
+chmod +x "$SHARE/run.sh"
+
+SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
+rm -f "$WORK"
+touch tmp/10/ok

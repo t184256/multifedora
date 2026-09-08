@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Run COMMAND under systemd-nspawn on a secondary system.
+# MODE is mandatory:
+#   --read-only   the root and the /boot tree are read-only inside
+#   --read-write  writes go straight into the system's subvolumes
+# Everything after MODE and NAME goes to systemd-nspawn as arguments.
+# usage: $0 MODE NAME [NSPAWN-OPTIONS...] [COMMAND [ARGS...]]
+
+set -Eeuo pipefail
+
+[[ "$(id -u)" = 0 ]] || { echo "ERROR: must run as root" >&2; exit 1; }
+usage() {
+  echo "usage: $0 --read-only|--read-write NAME [OPTS] CMD [ARGS...]" >&2
+  exit 2
+}
+[[ $# -ge 2 ]] || usage
+case $1 in
+--read-only|--read-write) ;;
+*) echo "ERROR: expected --read-only or --read-write" >&2; exit 2 ;;
+esac
+MODE=$1; shift
+NAME=$1; shift
+# the name becomes a directory path and a grep target; keep it boring
+[[ $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+  echo "ERROR: invalid name: $NAME" >&2
+  exit 1
+}
+
+if [[ $# -eq 0 ]]; then
+  set -- bash
+fi
+
+for t in findmnt sed head mount mountpoint systemd-nspawn; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
+
+BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
+S0=$(mktemp -d)
+ROOT=''
+cleanup() {
+  local rc=$?
+  if [[ -n $ROOT ]]; then
+    if mountpoint -q "$ROOT/boot/efi"; then
+      umount "$ROOT/boot/efi" \
+        || { echo "ERROR: cannot unmount $ROOT/boot/efi" >&2; exit 1; }
+    fi
+    if mountpoint -q "$ROOT/boot"; then
+      umount "$ROOT/boot" \
+        || { echo "ERROR: cannot unmount $ROOT/boot" >&2; exit 1; }
+    fi
+  fi
+  if mountpoint -q "$S0"; then
+    umount "$S0" || { echo "ERROR: cannot unmount $S0" >&2; exit 1; }
+  fi
+  rm -d "$S0" || {
+    echo "ERROR: cannot remove $S0 (still mounted?)" >&2
+    exit 1
+  }
+  exit "$rc"
+}
+trap cleanup EXIT
+
+mount -o subvolid=5 "$BDEV" "$S0"
+[[ -d $S0/multifedora/$NAME ]] || {
+  echo "ERROR: no such system: multifedora/$NAME" >&2
+  exit 1
+}
+BOOT=/boot/multifedora/$NAME
+[[ -d $BOOT/loader/entries ]] || {
+  echo "ERROR: no boot tree for multifedora/$NAME" >&2
+  exit 1
+}
+ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
+  "$BOOT"/loader/entries/*.conf | head -1)
+# a seated system has the namespace in its BLS options
+ROOTSV=${ROOTSV#"multifedora/$NAME/"}
+[[ -n $ROOTSV ]] || {
+  echo "ERROR: no subvol= in the BLS entries of $BOOT" >&2
+  exit 1
+}
+ROOT=$S0/multifedora/$NAME/$ROOTSV
+[[ -d $ROOT ]] || {
+  echo "ERROR: no root subvolume at multifedora/$NAME/$ROOTSV" >&2
+  exit 1
+}
+
+# the /boot tree is only writable in --read-write mode
+mount --bind "$BOOT" "$ROOT/boot"
+# this system sees the shared ESP read-only even at runtime (its fstab
+# says so); mirror that, and keep even a --read-write chroot from
+# writing to the primary's ESP
+mountpoint -q /boot/efi || {
+  echo "ERROR: /boot/efi is not mounted on this system" >&2
+  exit 1
+}
+mkdir -p "$ROOT/boot/efi"
+mount --bind /boot/efi "$ROOT/boot/efi"
+mount -o remount,ro,bind "$ROOT/boot/efi"
+if [[ $MODE == --read-only ]]; then
+  mount -o remount,ro,bind "$ROOT/boot"
+fi
+
+NSPAWN=(systemd-nspawn -q --machine="$NAME" -D "$ROOT")
+[[ $MODE == --read-only ]] && NSPAWN+=(--read-only)
+[[ -t 0 ]] || NSPAWN+=(--console=pipe)  # don't allocate pty if non-interactive
+"${NSPAWN[@]}" "$@"

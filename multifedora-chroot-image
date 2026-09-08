@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Run COMMAND inside a Fedora disk image.
+# COMMAND under systemd-nspawn on its root subvolume.
+# MODE is mandatory:
+#   --read-only   the root and the /boot tree are read-only inside
+#   --read-write  writes go straight into the system's subvolumes
+# The LUKS passphrase comes from $LUKS_PASSPHRASE,
+# or the output of $LUKS_PASSPHRASE_COMMAND IMAGE,
+# or a prompt.
+# Everything after MODE and NAME goes to systemd-nspawn as arguments.
+# usage: $0 MODE IMAGE [NSPAWN-OPTIONS...] [COMMAND [ARGS...]]
+
+set -Eeuo pipefail
+
+[[ "$(id -u)" = 0 ]] || { echo "ERROR: must run as root" >&2; exit 1; }
+usage() {
+  echo "usage: $0 --read-only|--read-write IMAGE [OPTS] CMD [ARGS...]" >&2
+  exit 2
+}
+[[ $# -ge 2 ]] || usage
+case $1 in
+--read-only|--read-write) ;;
+*) echo "ERROR: expected --read-only or --read-write" >&2; exit 2 ;;
+esac
+MODE=$1; shift
+image=$1; shift
+[[ -f $image ]] || { echo "ERROR: no such image: $image" >&2; exit 1; }
+
+if [[ $# -eq 0 ]]; then
+  set -- bash
+fi
+
+# passphrase: env, a command that prints it (image path as $1), or prompt
+if [[ -z ${LUKS_PASSPHRASE-} && -n ${LUKS_PASSPHRASE_COMMAND-} ]]; then
+  LUKS_PASSPHRASE=$(sh -c "$LUKS_PASSPHRASE_COMMAND" "$image")
+elif [[ -z ${LUKS_PASSPHRASE-} ]]; then
+  # read would die opaquely under set -e without a tty to prompt on
+  [[ -t 0 ]] || { echo "ERROR: no LUKS_PASSPHRASE and no tty" >&2; exit 1; }
+  read -rs -p "LUKS passphrase for $image: " LUKS_PASSPHRASE
+  echo
+fi
+
+for t in losetup cryptsetup mount mountpoint sed head \
+         systemd-nspawn seq sleep; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
+
+work=$(mktemp -d /run/mf-chroot-image.XXXXXX)
+lo='' map=mfimg-$$ map_ok=''
+cleanup() {
+  local rc=$?
+  if mountpoint -q "$work/root"; then
+    umount -R "$work/root" \
+      || { echo "ERROR: cannot unmount $work/root" >&2; exit 1; }
+  fi
+  if [[ -n $map_ok ]]; then
+    cryptsetup close "$map" \
+      || { echo "ERROR: cannot close $map" >&2; exit 1; }
+  fi
+  if [[ -n $lo ]]; then
+    losetup -d "$lo" || { echo "ERROR: cannot detach $lo" >&2; exit 1; }
+  fi
+  # scratch dirs on the /run tmpfs; only a non-empty workdir is a bug
+  rm -d "$work/root/boot/efi" "$work/root/boot" "$work/root" "$work/boot" \
+    2>/dev/null || true
+  rm -d "$work" || {
+    echo "ERROR: cannot remove $work (left intact)" >&2
+    exit 1
+  }
+  exit "$rc"
+}
+trap cleanup EXIT
+
+losetup_flags=( -f --show -P )
+mount_opts=rw
+case $MODE in
+--read-only)
+  losetup_flags+=( -r )
+  mount_opts=ro ;;
+esac
+lo=$(losetup "${losetup_flags[@]}" "$image")
+cryptsetup_flags=( open --key-file=- "${lo}p3" "$map" )
+[[ $MODE == --read-only ]] && cryptsetup_flags+=( --readonly )
+for _ in $(seq 40); do [[ -b ${lo}p3 ]] && break; sleep 0.25; done
+if [[ ! -b ${lo}p1 || ! -b ${lo}p2 || ! -b ${lo}p3 ]]; then
+  echo "ERROR: expected 3 partitions under $lo" >&2
+  exit 1
+fi
+
+echo -n "$LUKS_PASSPHRASE" | cryptsetup "${cryptsetup_flags[@]}"; map_ok=1
+
+mkdir -p "$work/boot"
+mount -o "$mount_opts" "${lo}p2" "$work/boot"
+ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
+  "$work"/boot/loader/entries/*.conf | head -1)
+umount "$work/boot"
+[[ -n $ROOTSV ]] || {
+  echo "ERROR: no subvol= in the image's BLS entries" >&2
+  exit 1
+}
+mkdir -p "$work/root/boot/efi"
+mount -o "$mount_opts,subvol=$ROOTSV" "/dev/mapper/$map" "$work/root"
+mount -o "$mount_opts" "${lo}p2" "$work/root/boot"
+mount -o "$mount_opts" "${lo}p1" "$work/root/boot/efi"
+
+NSPAWN=(systemd-nspawn -q --machine=image -D "$work/root")
+[[ $MODE == --read-only ]] && NSPAWN+=(--read-only)
+[[ -t 0 ]] || NSPAWN+=(--console=pipe)  # don't allocate pty if non-interactive
+"${NSPAWN[@]}" "$@"

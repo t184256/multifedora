@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Run COMMAND under systemd-nspawn, autodetecting the target:
+# a system under multifedora/ goes to chroot-secondary, a file in the
+# CWD goes to chroot-image. A target that is both - or neither - is
+# refused. MODE is mandatory; see the two for what each one means and
+# for the option and command pass-through rules.
+# usage: $0 MODE TARGET [NSPAWN-OPTIONS...] [COMMAND [ARGS...]]
+
+set -Eeuo pipefail
+
+[[ $# -ge 2 ]] || {
+  echo "usage: $0 --read-only|--read-write TARGET [OPTS] CMD" >&2
+  exit 2
+}
+case $1 in
+--read-only|--read-write) ;;
+*) echo "ERROR: expected --read-only or --read-write" >&2; exit 2 ;;
+esac
+MODE=$1; shift
+TARGET=$1; shift
+
+# resolve symlinks: our sibling tools live next to us
+DIR=$(dirname "$(readlink -f "$0")")
+export PATH="$DIR:$PATH"
+
+for t in btrfs grep readlink; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
+
+sys=0
+btrfs subvolume list / 2>/dev/null | grep -Fq "path multifedora/$TARGET/" \
+  && sys=1
+img=0
+[[ -f $TARGET ]] && img=1
+if (( sys && img )); then
+  {
+    echo "ERROR: '$TARGET' is both a system and a file; use"
+    echo "chroot-secondary or chroot-image"
+  } >&2
+  exit 1
+elif (( sys )); then
+  exec multifedora-chroot-secondary "$MODE" "$TARGET" "$@"
+elif (( img )); then
+  exec multifedora-chroot-image "$MODE" "$TARGET" "$@"
+else
+  echo "ERROR: no such system or image: $TARGET" >&2
+  exit 1
+fi
