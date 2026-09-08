@@ -32,6 +32,7 @@ fi
   echo '  configfile $prefix/grub.cfg'
   echo '}'
   for d in "$BOOT_DIR"/multifedora/*; do
+    [[ -d $d ]] || continue  # no secondaries: the glob stays literal
     name=$(basename "$d")
     echo "menuentry '$name' {"
     echo "  set prefix=(\$dev)/multifedora/$name/grub2"
