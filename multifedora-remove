@@ -13,6 +13,10 @@ export PATH="$DIR:$PATH"
 command -v btrfs mount findmnt readlink >/dev/null
 
 NAME=$1
+if [[ ! $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "ERROR: invalid name: $NAME" >&2
+  exit 1
+fi
 
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)

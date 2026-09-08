@@ -19,13 +19,17 @@ ESP=$2
 BOOT=$3
 STREAM=$4
 MANIFEST=$5
+[[ $OLD_NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+  echo "ERROR: invalid name: $OLD_NAME" >&2
+  exit 1
+}
 for f in "$ESP" "$BOOT" "$STREAM" "$MANIFEST"; do
   [[ -f $f ]] || { echo "ERROR: no such file: $f" >&2; exit 1; }
 done
-[[ -e /boot/multifedora/$OLD_NAME ]] && {
-  echo "ERROR: /boot/multifedora/$OLD_NAME already exists" >&2
+if [[ ! $OLD_NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "ERROR: invalid name: $OLD_NAME" >&2
   exit 1
-}
+fi
 
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
