@@ -123,8 +123,7 @@ elif grep -q "^luks-$LUKS_UUID UUID=$LUKS_UUID " "$ROOT/etc/crypttab"; then
   echo "multifedora-reseat: crypttab already points at this disk"
 else
   # rewrite the identity fields
-  sed -i -E \
-    "s|^(luks-)[^ ]* (UUID=)[^ ]*|\1$LUKS_UUID \2$LUKS_UUID|" \
+  sed -i -E "s|^(luks-)[^ ]* (UUID=)[^ ]*|\1$LUKS_UUID \2$LUKS_UUID|" \
     "$ROOT/etc/crypttab"
   grep -q "^luks-$LUKS_UUID UUID=$LUKS_UUID " "$ROOT/etc/crypttab" \
     || { echo "ERROR: failed to re-point crypttab" >&2; exit 1; }
@@ -192,8 +191,7 @@ fi
 if grep -qE "^UUID=$BOOT_UUID /(\.real-)?boot(\s|\$)" "$ROOT/etc/fstab"; then
   echo "multifedora-reseat: fstab boot already points at this disk"
 else
-  sed -i -E \
-    "s|^([^ ]+) (/(\.real-)?boot)(\s.*)$|UUID=$BOOT_UUID \2\4|" \
+  sed -i -E "s|^([^ ]+) (/(\.real-)?boot)(\s.*)$|UUID=$BOOT_UUID \2\4|" \
     "$ROOT/etc/fstab"
   grep -qE "^UUID=$BOOT_UUID /(\.real-)?boot(\s|\$)" "$ROOT/etc/fstab" \
     || { echo "ERROR: failed to re-point the fstab boot line" >&2; exit 1; }
@@ -204,8 +202,7 @@ fi
 if grep -qE "^UUID=$ESP_UUID /boot/efi(\s|\$)" "$ROOT/etc/fstab"; then
   echo "multifedora-reseat: fstab ESP already points at this disk"
 else
-  sed -i -E \
-    "s|^([^ ]+) (/boot/efi)(\s.*)$|UUID=$ESP_UUID \2\3|" \
+  sed -i -E "s|^([^ ]+) (/boot/efi)(\s.*)$|UUID=$ESP_UUID \2\3|" \
     "$ROOT/etc/fstab"
   grep -qE "^UUID=$ESP_UUID /boot/efi(\s|\$)" "$ROOT/etc/fstab" \
     || { echo "ERROR: failed to re-point the fstab ESP line" >&2; exit 1; }
@@ -220,8 +217,7 @@ else
     # rd.luks.key=<luks-uuid>=<keyfile>[:<device>] (systemd's syntax):
     # re-point the LUKS uuid and the keyfile's device; the keyfile lives
     # on /boot, whose path secondaries get namespaced further below
-    sed -i -E \
-      -e "s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|g" \
+    sed -i -E -e "s|root=UUID=[^ ]*|root=UUID=$BTRFS_UUID|g" \
       -e "s|rd\.luks\.uuid=luks-[^ ]*|rd.luks.uuid=luks-$LUKS_UUID|g" \
       -e "s|(rd\.luks\.key=)[^=:]+=|\1$LUKS_UUID=|g" \
       -e "s|(rd\.luks\.key=[^ :]*):UUID=[^ :]+|\1:UUID=$BOOT_UUID|g" \
@@ -258,8 +254,7 @@ if grub_points_here; then
 else
   # --set=root/--set=boot: put this disk's uuid right after the flag,
   # replacing whatever token was there; a following --option is kept
-  sed -i -E \
-    -e "s|(--set=root) (--[^ ]*)|\1 $BOOT_UUID \2|g" \
+  sed -i -E -e "s|(--set=root) (--[^ ]*)|\1 $BOOT_UUID \2|g" \
     -e "s|(--set=root) [^ ]*|\1 $BOOT_UUID|g" \
     -e "s|(--set=boot) (--[^ ]*)|\1 $ESP_UUID \2|g" \
     -e "s|(--set=boot) [^ ]*|\1 $ESP_UUID|g" \
@@ -340,8 +335,7 @@ if [[ -n $NAME ]]; then
 
   # fstab: mount the shared /boot partition at /.real-boot
   # and bind our namespaced directory to /boot
-  if grep -qE "^UUID=[^\s]* /boot(\s|\$)" \
-     "$ROOT/etc/fstab"; then
+  if grep -qE "^UUID=[^\s]* /boot(\s|\$)" "$ROOT/etc/fstab"; then
     sed -i -E "/^UUID=[^\s]* \/boot(\s|\$)/ \
 s|^([^\s]+) /boot(.*)$|\\1 /.real-boot\\2\n\
 /.real-boot/multifedora/$NAME /boot none bind 0 0|" \
