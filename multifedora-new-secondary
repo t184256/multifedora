@@ -14,7 +14,9 @@ BOOT_TAR=$2
 STREAM=$3
 MANIFEST=$4
 
-command -v btrfs mount findmnt tar sed >/dev/null
+for t in btrfs mount findmnt tar sed; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 if [[ ! $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
   echo "ERROR: invalid name: $NAME" >&2

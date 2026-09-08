@@ -11,8 +11,10 @@ if [[ $# -ne 5 ]]; then
   exit 2
 fi
 
-command -v btrfs mount mountpoint findmnt tar ln mv systemctl basename \
-           sed cp chmod chroot readlink dirname >/dev/null
+for t in btrfs mount mountpoint findmnt tar ln mv systemctl \
+         basename sed cp chmod chroot readlink dirname; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 OLD_NAME=$1
 ESP=$2

@@ -10,7 +10,9 @@ set -Eeuo pipefail
 DIR=$(dirname "$(readlink -f "$0")")
 export PATH="$DIR:$PATH"
 
-command -v btrfs mount findmnt readlink >/dev/null
+for t in btrfs mount findmnt readlink; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 NAME=$1
 if [[ ! $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then

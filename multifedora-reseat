@@ -20,7 +20,9 @@ case $# in
   1) NAME=$1 ;;
 esac
 
-command -v mount findmnt sed install cmp chroot >/dev/null
+for t in mount findmnt sed install cmp chroot; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 extra_mounts=()
 S0=''

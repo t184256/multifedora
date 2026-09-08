@@ -15,8 +15,10 @@ set -Eeuo pipefail
 DIR=$(dirname "$(readlink -f "$0")")
 export PATH="$DIR:$PATH"
 
-command -v btrfs findmnt mountpoint tar cp sed basename unshare mount \
-  readlink >/dev/null
+for t in btrfs findmnt mountpoint tar cp sed basename unshare \
+         mount readlink; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 # run in a private mount namespace: systemd (in the root namespace)
 # creates implicit .mount units for mounts made with mount(8),

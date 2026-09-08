@@ -15,7 +15,9 @@ if [[ $# -ne 5 ]]; then
   exit 2
 fi
 
-command -v losetup blkid mount tar cryptsetup btrfs >/dev/null
+for t in losetup blkid mount tar cryptsetup btrfs; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 IMG=$1
 LUKS_PASSPHRASE=$2

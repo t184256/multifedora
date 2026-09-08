@@ -10,7 +10,9 @@
 # shellcheck disable=SC2016
 set -Eeuo pipefail
 
-command -v findmnt basename >/dev/null
+for t in findmnt basename; do
+  command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
+done
 
 ESP_DIR=${1:-/boot/efi}
 BOOT_DIR=${2:-/boot}
