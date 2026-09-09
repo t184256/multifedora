@@ -12,7 +12,7 @@ set -Eeuo pipefail
 SRC=$1
 COMMAND=("${@:2}")
 GRUB_DOWN_COUNT=${GRUB_DOWN_COUNT:-0}  # boot Nth entry from the default
-SSHPORT=${SSHPORT:-0}  # auto-pick a free one
+SSH_PORT=${SSH_PORT:-0}  # auto-pick a free one
 CPU_CORES=${CPU_CORES:-2}
 RAM_GB=${RAM_GB:-4}
 DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging
@@ -28,12 +28,12 @@ pick_free_ports() {
     <(ss -Htan | cut -d' ' -f4 | sed 's/.*://' | sort -u) \
     | shuf | head -n "$1"
 }
-if [[ $SSHPORT == 0 || $MON == 0 ]]; then
+if [[ $SSH_PORT == 0 || $MON == 0 ]]; then
   mapfile -t FREE < <(pick_free_ports 2)
-  if [[ $SSHPORT == 0 ]]; then SSHPORT=${FREE[0]}; fi
+  if [[ $SSH_PORT == 0 ]]; then SSH_PORT=${FREE[0]}; fi
   if [[ $MON == 0 ]]; then MON=${FREE[1]}; fi
 fi
-export SSHPORT  # for tool-inside-vm
+export SSH_PORT  # for tool-inside-vm
 
 if [[ -n $BACKGROUND_PIDFILE ]] && (( ${#COMMAND[@]} )); then
   die 'BACKGROUND_PIDFILE and COMMAND are mutually exclusive'
@@ -57,7 +57,7 @@ cp "$OVMF/OVMF_VARS.fd" "$VARS"
 mon() { printf '%s\n' "$@" | nc -w3 localhost "$MON" >/dev/null; }
 
 probe_ssh() (
-  exec 3<>"/dev/tcp/127.0.0.1/$SSHPORT" 2>/dev/null || return 1
+  exec 3<>"/dev/tcp/127.0.0.1/$SSH_PORT" 2>/dev/null || return 1
   local banner=''
   IFS= read -r -t 1 -u 3 banner || { exec 3>&-; return 1; }
   exec 3>&-
@@ -98,7 +98,7 @@ qemu-system-x86_64 \
   -drive if=pflash,format=raw,unit=0,file="$CODE" \
   -drive if=pflash,format=raw,unit=1,file="$VARS" \
   -display "$DISP" \
-  -netdev "user,id=n,hostfwd=tcp:127.0.0.1:$SSHPORT-:22" \
+  -netdev "user,id=n,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22" \
   -device virtio-net-pci,netdev=n \
   "${SHARE_ARGS[@]}" \
   -drive file="$SRC",if=virtio,cache=none,cache.no-flush=on,format=raw \
