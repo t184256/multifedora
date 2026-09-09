@@ -83,7 +83,7 @@
       packages.x86_64-linux.multifedora-rpm = multifedoraRpm;
       devShells.x86_64-linux.default = pkgs.mkShell {
         packages = with pkgs; [
-          coreutils gnumake gnused diffutils
+          coreutils gnumake gnused diffutils iproute2
           qemu_kvm OVMF netcat wget parted
           cryptsetup btrfs-progs util-linux openssh
           dosfstools mtools xorriso

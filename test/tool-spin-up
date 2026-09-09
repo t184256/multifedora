@@ -12,20 +12,28 @@ set -Eeuo pipefail
 SRC=$1
 COMMAND=("${@:2}")
 GRUB_DOWN_COUNT=${GRUB_DOWN_COUNT:-0}  # boot Nth entry from the default
-SSHPORT=${SSHPORT:-2234}
+SSHPORT=${SSHPORT:-0}  # auto-pick a free one
 CPU_CORES=${CPU_CORES:-2}
 RAM_GB=${RAM_GB:-4}
 DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging
-MON=${MON:-4547}
+MON=${MON:-0}  # auto-pick a free one
 BACKGROUND_PIDFILE=${BACKGROUND_PIDFILE:-}
 EXTRA_DISK=${EXTRA_DISK:-}
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-if (exec 3<>"/dev/tcp/127.0.0.1/$MON") 2>/dev/null; then
-  exec 3>&-
-  die "monitor port $MON is busy, wait for the previous QEMU to exit first"
+pick_free_ports() {
+  comm -23 \
+    <(seq 10000 59999) \
+    <(ss -Htan | cut -d' ' -f4 | sed 's/.*://' | sort -u) \
+    | shuf | head -n "$1"
+}
+if [[ $SSHPORT == 0 || $MON == 0 ]]; then
+  mapfile -t FREE < <(pick_free_ports 2)
+  if [[ $SSHPORT == 0 ]]; then SSHPORT=${FREE[0]}; fi
+  if [[ $MON == 0 ]]; then MON=${FREE[1]}; fi
 fi
+export SSHPORT  # for tool-inside-vm
 
 if [[ -n $BACKGROUND_PIDFILE ]] && (( ${#COMMAND[@]} )); then
   die 'BACKGROUND_PIDFILE and COMMAND are mutually exclusive'
@@ -99,7 +107,8 @@ qemu-system-x86_64 \
 QEMU_PID=$!
 sleep 1
 kill -0 "$QEMU_PID" 2>/dev/null || die "qemu died at startup"
-echo "qemu up (pid $QEMU_PID), monitor on $MON, waiting for SSH to go up..."
+echo "qemu is up (pid $QEMU_PID), monitor's on port $MON"
+echo "waiting for SSH to go up on port $SSH_PORT..."
 
 if (( ${GRUB_DOWN_COUNT:-0} )); then
   sleep 3
