@@ -3,6 +3,7 @@
 # If an optional COMMAND is passed, run it inside the VM over SSH
 # and power off afterwards.
 # If SHARE_DIR is set, that host directory is mounted at /share.
+# If EXTRA_DISK is set, that host file is attached as a read-only /dev/vdb.
 # If BACKGROUND_PIDFILE is set, exit 0 as soon as SSH is up, leaving the VM
 # running and writing its pid to that file. Kill or poweroff it yourself then.
 set -Eeuo pipefail
@@ -17,6 +18,7 @@ RAM_GB=${RAM_GB:-4}
 DISP=${DISP:-none}  # set to, e.g., vnc=127.0.0.1:0 for debugging
 MON=${MON:-4547}
 BACKGROUND_PIDFILE=${BACKGROUND_PIDFILE:-}
+EXTRA_DISK=${EXTRA_DISK:-}
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -72,6 +74,14 @@ if [[ -n ${SHARE_DIR:-} ]]; then
               -device virtio-9p-pci,fsdev=share,mount_tag=virtio)
 fi
 
+EXTRA_ARGS=()
+if [[ -n $EXTRA_DISK ]]; then
+  [[ -f $EXTRA_DISK ]] || die "EXTRA_DISK=$EXTRA_DISK is not a file"
+  EXTRA_ARGS=(
+    -drive "file=$EXTRA_DISK,if=virtio,readonly=on,cache=none,format=raw"
+  )
+fi
+
 qemu-system-x86_64 \
   -monitor "tcp:localhost:$MON,server,nowait" \
   -machine q35 -cpu host -enable-kvm \
@@ -84,6 +94,7 @@ qemu-system-x86_64 \
   -device virtio-net-pci,netdev=n \
   "${SHARE_ARGS[@]}" \
   -drive file="$SRC",if=virtio,cache=none,cache.no-flush=on,format=raw \
+  "${EXTRA_ARGS[@]}" \
   -no-reboot &
 QEMU_PID=$!
 sleep 1

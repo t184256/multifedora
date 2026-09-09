@@ -19,12 +19,13 @@ for f in multifedora multifedora-list multifedora-chroot \
          multifedora-chroot-image multifedora-chroot-secondary; do
   cp "../$f" "$SHARE/"
 done
-cp tmp/02/second.img "$SHARE/"
 cat > "$SHARE/run.sh" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
 rc=0
+
+dd if=/dev/vdb of=/var/tmp/second.img bs=64M conv=sparse status=none
 
 dnf -y -q install systemd-container \
   || { echo "failed to install systemd-container" >&2; exit 1; }
@@ -65,7 +66,7 @@ grep -q from-chroot "$T/multifedora/example/home/mf-rw" \
 umount "$T"; rm -d "$T"
 
 export LUKS_PASSPHRASE_COMMAND='echo example'
-out=$(multifedora chroot-image --read-only /share/second.img \
+out=$(multifedora chroot-image --read-only /var/tmp/second.img \
       sh -c 'findmnt -no TARGET /home')
 [[ $out == /home ]] || { echo "chroot-image: /home not mounted" >&2; rc=1; }
 
@@ -76,11 +77,11 @@ if multifedora list --bogus 2>/dev/null; then
 fi
 
 # chroot-image: read works, and --read-only makes writes fail
-out=$(multifedora chroot-image --read-only /share/second.img \
+out=$(multifedora chroot-image --read-only /var/tmp/second.img \
       cat /var/lib/test-subvol/stamp)
 [[ -n $out && $out != "$host_stamp" ]] \
   || { echo "chroot-image stamp check failed: $out" >&2; rc=1; }
-multifedora chroot-image --read-only /share/second.img \
+multifedora chroot-image --read-only /var/tmp/second.img \
   bash -c 'touch /x' </dev/null 2>/dev/null \
   && { echo "chroot-image: write succeeded in a ro chain" >&2; rc=1; }
 
@@ -88,7 +89,7 @@ multifedora chroot-image --read-only /share/second.img \
 # * file in the CWD -> image,
 # * system name -> secondary,
 # * both -> refuse to proceed
-cd /share
+cd /var/tmp
 multifedora chroot --read-only second.img true \
   || { echo "chroot: file target did not route to the image" >&2; rc=1; }
 multifedora chroot --read-only example true </dev/null \
@@ -138,7 +139,7 @@ multifedora chroot-secondary --read-write example \
   && { echo "chroot-secondary rw: ESP write succeeded" >&2; rc=1; }
 
 # --read-write on an image, against a copy so the original is untouched
-cp --sparse=always /share/second.img /rw.img
+cp --sparse=always /var/tmp/second.img /rw.img
 multifedora chroot-image --read-write /rw.img bash -c 'touch /rw-marker' \
   || { echo "chroot-image rw: write failed" >&2; rc=1; }
 multifedora chroot-image --read-only /rw.img test -f /rw-marker \
@@ -146,7 +147,7 @@ multifedora chroot-image --read-only /rw.img test -f /rw-marker \
 
 # a wrong passphrase must fail and leak no loop, mapper or workdir
 LUKS_PASSPHRASE_COMMAND='echo wrong' multifedora chroot-image --read-only \
-  /share/second.img true </dev/null 2>/dev/null \
+  /var/tmp/second.img true </dev/null 2>/dev/null \
   && { echo "chroot-image: wrong passphrase was accepted" >&2; rc=1; }
 losetup -a | grep -q second.img \
   && { echo "chroot-image: loop device leaked" >&2; rc=1; }
@@ -159,6 +160,7 @@ exit $rc
 EOF
 chmod +x "$SHARE/run.sh"
 
+EXTRA_DISK=$PWD/tmp/02/second.img \
 SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
 rm -f "$WORK"
 touch tmp/10/ok
