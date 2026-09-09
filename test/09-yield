@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stage 08: test the yield mechanism.
+# Stage 09: test the yield mechanism.
 
 set -Eeuo pipefail
 cd "$(dirname "$0")"
@@ -11,12 +11,12 @@ for f in tmp/03/second.esp.tar tmp/03/second.boot.tar \
   [[ -f $f ]] || die "no $f; run stage 03 first"
 done
 
-mkdir -p tmp/08
+mkdir -p tmp/09
 # renamed on completion, so the target exists only on success (a failed
 # run leaves tmp.img behind and make re-runs)
-WORK=tmp/08/tmp.img
+WORK=tmp/09/tmp.img
 cp --sparse=always tmp/01/initial.img "$WORK"
-SHARE=tmp/08/share
+SHARE=tmp/09/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
 cp ../multifedora-esp-menu ../multifedora-list ../multifedora-inject \
@@ -116,4 +116,4 @@ GRUB_DOWN_COUNT=1 ./tool-spin-up "$WORK" \
    [[ $rc -eq 0 ]] && echo STASHED-OK
    exit $rc'
 
-mv "$WORK" tmp/08/yielded.img
+mv "$WORK" tmp/09/yielded.img

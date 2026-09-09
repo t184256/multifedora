@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Stage 09: a second yield, with a stashed system already present.
+# Stage 10: a second yield, with a stashed system already present.
 
 set -Eeuo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
-[[ -f tmp/08/yielded.img ]] || die "no tmp/08/yielded.img; run stage 08 first"
+[[ -f tmp/09/yielded.img ]] || die "no tmp/09/yielded.img; run stage 09 first"
 for f in tmp/03/second.esp.tar tmp/03/second.boot.tar \
          tmp/03/second.rootfs tmp/03/second.rootfs.manifest; do
   [[ -f $f ]] || die "no $f; run stage 03 first"
 done
 
-mkdir -p tmp/09
-WORK=tmp/09/tmp.img
-cp --sparse=always tmp/08/yielded.img "$WORK"
-SHARE=tmp/09/share
+mkdir -p tmp/10
+WORK=tmp/10/tmp.img
+cp --sparse=always tmp/09/yielded.img "$WORK"
+SHARE=tmp/10/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
 cp ../multifedora-esp-menu ../multifedora-list ../multifedora-inject \
@@ -113,4 +113,4 @@ GRUB_DOWN_COUNT=2 ./tool-spin-up "$WORK" \
    [[ $rc -eq 0 ]] && echo STASHED-SECOND-OK
    exit $rc'
 
-touch tmp/09/ok
+touch tmp/10/ok

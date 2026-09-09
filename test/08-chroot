@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stage 10: test multifedora chroot / chroot-secondary / chroot-image.
+# Stage 08: test multifedora chroot / chroot-secondary / chroot-image.
 
 set -Eeuo pipefail
 cd "$(dirname "$0")"
@@ -8,11 +8,11 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 [[ -f tmp/05/dual.img ]] || die "no tmp/05/dual.img; run stage 05 first"
 [[ -f tmp/02/second.img ]] || die "no tmp/02/second.img; run stage 02 first"
 
-WORK=tmp/10/tmp.img
-mkdir -p tmp/10
+WORK=tmp/08/tmp.img
+mkdir -p tmp/08
 cp --sparse=always tmp/05/dual.img "$WORK"
 
-SHARE=tmp/10/share
+SHARE=tmp/08/share
 rm -rf "$SHARE"
 mkdir -p "$SHARE"
 for f in multifedora multifedora-list multifedora-chroot \
@@ -163,4 +163,4 @@ chmod +x "$SHARE/run.sh"
 EXTRA_DISK=$PWD/tmp/02/second.img \
 SHARE_DIR=$PWD/$SHARE ./tool-spin-up "$WORK" '/share/run.sh'
 rm -f "$WORK"
-touch tmp/10/ok
+touch tmp/08/ok
