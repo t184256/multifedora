@@ -6,6 +6,8 @@ License:	MIT
 URL:		https://github.com/t184256/multifedora
 Source0:	https://github.com/t184256/multifedora/archive/{{git_commit}}/{{tarball}}
 
+BuildRequires:	systemd-rpm-macros
+
 BuildArch:	noarch
 AutoReqProv:	no
 Requires:	/bin/bash
