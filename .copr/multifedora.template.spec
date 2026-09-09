@@ -75,9 +75,9 @@ ln -s %{_libexecdir}/multifedora/multifedora %{buildroot}%{_sbindir}/multifedora
 %license LICENSE
 %{_sbindir}/multifedora
 %{_libexecdir}/multifedora/multifedora
-%{_unitdir}/multifedora-yield.service
 
 %files lib
+%{_unitdir}/multifedora-yield.service
 %exclude %{_libexecdir}/multifedora/multifedora
 %exclude %{_libexecdir}/multifedora/multifedora-chroot
 %exclude %{_libexecdir}/multifedora/multifedora-chroot-image
