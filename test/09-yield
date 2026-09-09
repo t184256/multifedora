@@ -58,8 +58,9 @@ EXP
 # identity markers: this (running) system, and the primed one
 # exercised through the chroot-next helper
 echo old-primary > /etc/multifedora-marker
-multifedora-chroot-next sh -c 'echo new-primary > /etc/multifedora-marker'
-multifedora-chroot-next sh -c 'echo np-home > /home/mf-next-home'
+multifedora-chroot-next --read-write \
+	sh -c 'echo new-primary > /etc/multifedora-marker'
+multifedora-chroot-next --read-write sh -c 'echo np-home > /home/mf-next-home'
 EOF
 chmod +x "$SHARE/run.sh"
 

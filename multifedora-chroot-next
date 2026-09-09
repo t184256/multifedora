@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # Run a command in the primed next system (multifedora/.next), always rw.
 # A private helper: no parent CLI case.
-# usage: $0 [NSPAWN-OPTS] [COMMAND [ARG...]]
+# usage: $0 --read-write [NSPAWN-OPTS] [COMMAND [ARG...]]
 
 set -Eeuo pipefail
+
+if [[ ${1-} != --read-write ]]; then
+  echo "usage: $0 --read-write [NSPAWN-OPTS] [COMMAND [ARG...]]" >&2
+  exit 2
+fi
+shift
+
+if [[ $# -eq 0 ]]; then
+  set -- bash
+fi
 
 if [[ "$(id -u)" != 0 ]]; then
   echo "ERROR: must run as root" >&2
@@ -49,10 +59,6 @@ ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
 if [[ -z $ROOTSV ]]; then
   echo "ERROR: no root subvolume named in the BLS entries" >&2
   exit 1
-fi
-
-if [[ $# -eq 0 ]]; then
-  set -- bash
 fi
 
 ROOT=$(mktemp -d /run/mf-next.XXXXXX)
