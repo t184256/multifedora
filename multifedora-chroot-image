@@ -32,7 +32,7 @@ fi
 
 # passphrase: env, a command that prints it (image path as $1), or prompt
 if [[ -z ${LUKS_PASSPHRASE-} && -n ${LUKS_PASSPHRASE_COMMAND-} ]]; then
-  LUKS_PASSPHRASE=$(sh -c "$LUKS_PASSPHRASE_COMMAND" "$image")
+  LUKS_PASSPHRASE=$("$LUKS_PASSPHRASE_COMMAND" "$image")
 elif [[ -z ${LUKS_PASSPHRASE-} ]]; then
   # read would die opaquely under set -e without a tty to prompt on
   [[ -t 0 ]] || { echo "ERROR: no LUKS_PASSPHRASE and no tty" >&2; exit 1; }

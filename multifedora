@@ -40,7 +40,7 @@ add)
 
   # passphrase: env, a command that prints it (image path as $1), or prompt
   if [[ -z ${LUKS_PASSPHRASE-} && -n ${LUKS_PASSPHRASE_COMMAND-} ]]; then
-    LUKS_PASSPHRASE=$(sh -c "$LUKS_PASSPHRASE_COMMAND" "$IMAGE")
+    LUKS_PASSPHRASE=$("$LUKS_PASSPHRASE_COMMAND" "$IMAGE")
   elif [[ -z ${LUKS_PASSPHRASE-} ]]; then
     [[ -t 0 ]] || {
       echo "ERROR: no LUKS_PASSPHRASE and no tty to prompt on" >&2
@@ -74,7 +74,7 @@ prime-pivot)
 
   # passphrase: env, a command that prints it (image path as $1), or prompt
   if [[ -z ${LUKS_PASSPHRASE-} && -n ${LUKS_PASSPHRASE_COMMAND-} ]]; then
-    LUKS_PASSPHRASE=$(sh -c "$LUKS_PASSPHRASE_COMMAND" "$IMAGE")
+    LUKS_PASSPHRASE=$("$LUKS_PASSPHRASE_COMMAND" "$IMAGE")
   elif [[ -z ${LUKS_PASSPHRASE-} ]]; then
     [[ -t 0 ]] || {
       echo "ERROR: no LUKS_PASSPHRASE and no tty to prompt on" >&2
