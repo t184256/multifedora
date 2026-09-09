@@ -140,7 +140,7 @@ if [[ $rebuild_initramfs -eq 1 ]]; then
     < <(grep "^luks-$LUKS_UUID " "$ROOT/etc/crypttab" | head -1) || true
   case ${copts-} in
   *force*) ;;
-  '') sed -i "/^luks-$LUKS_UUID /" 's/$/ force/' "$ROOT/etc/crypttab" ;;
+  '') sed -i "/^luks-$LUKS_UUID /"'s/$/ force/' "$ROOT/etc/crypttab" ;;
   *) sed -i "/^luks-$LUKS_UUID / s/ \([^ ]*\)$/ \1,force/" \
      "$ROOT/etc/crypttab" ;;
   esac
