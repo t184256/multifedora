@@ -65,7 +65,9 @@ grep -q from-chroot "$T/multifedora/example/home/mf-rw" \
   || { echo "rw write leaked into the root subvolume" >&2; rc=1; }
 umount "$T"; rm -d "$T"
 
-export LUKS_PASSPHRASE_COMMAND='echo example'
+echo -e '#!/bin/sh\necho example' > ./passcmd
+chmod +x ./passcmd
+export LUKS_PASSPHRASE_COMMAND="$PWD/passcmd"
 out=$(multifedora chroot-image --read-only /var/tmp/second.img \
       sh -c 'findmnt -no TARGET /home')
 [[ $out == /home ]] || { echo "chroot-image: /home not mounted" >&2; rc=1; }
