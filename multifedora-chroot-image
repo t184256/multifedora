@@ -50,8 +50,11 @@ lo='' map=mfimg-$$ map_ok=''
 cleanup() {
   local rc=$?
   if mountpoint -q "$work/root"; then
-    umount -R "$work/root" \
-      || { echo "ERROR: cannot unmount $work/root" >&2; exit 1; }
+    for _ in {0..10}; do umount -R "$work/root" && break; sleep 0.2; done
+    if mountpoint -q "$work/root"; then
+      echo "ERROR: cannot unmount $work/root" >&2
+      exit 1
+    fi
   fi
   if [[ -n $map_ok ]]; then
     cryptsetup close "$map" \
