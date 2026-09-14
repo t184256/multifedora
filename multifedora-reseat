@@ -274,7 +274,11 @@ fi
 # shared and never changes on a reseat
 sweep() {  # $1 old, $2 new
   if [[ -n $1 && ${#1} -eq 36 && $1 != "$2" ]]; then
-    sed -i "s/$1/$2/g" "$BOOT"/loader/entries/*.conf "$BOOT/grub2/grub.cfg"
+    sed -i "s/$1/$2/g" \
+        "$BOOT"/loader/entries/*.conf \
+        "$BOOT/grub2/grub.cfg" \
+        "$ROOT/etc/kernel/cmdline" \
+        "$ROOT/etc/default/grub"
   fi
 }
 sweep "$OLD_BTRFS" "$BTRFS_UUID"
