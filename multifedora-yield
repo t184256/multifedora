@@ -66,6 +66,35 @@ for ((i = 2; ; i++)); do
   NAME="$NAME-$i"
 done
 
+# additionally, carry over specified data subvolumes of the primary system;
+# one relative path per line, nesting allowed, parents before children
+# (snapshotting a child first would leave its parent dir in place and make
+# the parent's snapshot fail). an undocumented interface for now.
+if [[ -f $NEXT/carry-over ]]; then
+# the human-readable listing is "ID <id> gen <gen> top level <n> path <p>",
+# so the path (which may contain spaces) is everything from field 9 on
+  SUBVOLS=$(btrfs subvolume list "$S0" | cut -d' ' -f9-)
+  while IFS= read -r p || [[ -n $p ]]; do
+    [[ -n $p ]] || continue
+    if [[ ! -e $S0/$p ]]; then
+      echo "multifedora-yield: carry-over: no such path: $p; skipping"
+      continue
+    fi
+    if ! grep -qFx -- "$p" <<<"$SUBVOLS"; then
+      echo "multifedora-yield: carry-over: not a subvolume: $p; skipping"
+      continue
+    fi
+    if [[ -e $NEXT/subvols/$p ]]; then
+      echo "multifedora-yield: carry-over: already exists: $p; skipping"
+      continue
+    fi
+    mkdir -p "$(dirname "$NEXT/subvols/$p")"
+    btrfs subvolume snapshot "$S0/$p" "$NEXT/subvols/$p"
+    echo "multifedora-yield: carried over $p to the next generation"
+  done < "$NEXT/carry-over"
+  rm "$NEXT/carry-over"
+fi
+
 echo "multifedora-yield: stashing the running system as multifedora/$NAME"
 
 # stash the running subvolumes (all top-level ones)
