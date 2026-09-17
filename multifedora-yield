@@ -84,9 +84,12 @@ if [[ -f $NEXT/carry-over ]]; then
       echo "multifedora-yield: carry-over: not a subvolume: $p; skipping"
       continue
     fi
-    if [[ -e $NEXT/subvols/$p ]]; then
-      echo "multifedora-yield: carry-over: already exists: $p; skipping"
-      continue
+    if [[ -d "$NEXT/subvols/$p" ]]; then
+      # try removing if it's an empty dir before snapshotting over it
+      if ! rm -d "$NEXT/subvols/$p" 2>/dev/null; then
+        echo "multifedora-yield: carry-over: exists and not empty: $p; skipping"
+        continue
+      fi
     fi
     mkdir -p "$(dirname "$NEXT/subvols/$p")"
     btrfs subvolume snapshot "$S0/$p" "$NEXT/subvols/$p"
