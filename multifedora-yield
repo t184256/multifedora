@@ -16,7 +16,7 @@ DIR=$(dirname "$(readlink -f "$0")")
 export PATH="$DIR:$PATH"
 
 for t in btrfs findmnt mountpoint tar cp sed basename unshare \
-         mount readlink; do
+         mount readlink restorecon; do
   command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
 done
 
@@ -165,6 +165,7 @@ done
 }
 
 cp -a "$NEXT/boot/." /boot/
+restorecon /boot
 mkdir -p /boot/efi
 mountpoint -q /boot/efi || mount "$A_ESP_SRC" /boot/efi
 
@@ -174,7 +175,7 @@ multifedora-reseat "$NAME"
 
 # ESP: the primed one replaces the running one
 echo 'multifedora-yield: installing the primed ESP'
-tar xf "$ESP_TAR" -C /boot/efi
+tar --xattrs -xf "$ESP_TAR" -C /boot/efi  # --xattrs just for uniformity
 multifedora-esp-menu
 
 # clear the markers and reclaim the staging area

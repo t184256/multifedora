@@ -73,7 +73,7 @@ multifedora-inject "$STREAM" "$MANIFEST" "$NEXT/subvols"
 # and rebuilds the initramfs.
 BOOTDIR=$NEXT/boot
 mkdir "$BOOTDIR"
-tar xf "$BOOT" --exclude=./efi -C "$BOOTDIR"
+tar --xattrs -xf "$BOOT" --exclude=./efi -C "$BOOTDIR"
 ROOTSV=$(sed -n 's/.*rootflags=subvol=\([^ ]*\).*/\1/p' \
   "$BOOTDIR"/loader/entries/*.conf | head -1)
 [[ -n $ROOTSV ]] || {

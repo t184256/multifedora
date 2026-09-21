@@ -44,8 +44,12 @@ trap cleanup EXIT
 [[ $(blkid -s TYPE -o value "${LO}"p{1,2,3}) == $'vfat\next4\ncrypto_LUKS' ]]
 [[ ! -e "${LO}p4" ]] || exit 1
 
-mount -o ro "${LO}p1" "$TMP"; tar -C "$TMP" -cf "$OUT_ESP_TAR" .; umount "$TMP"
-mount -o ro "${LO}p2" "$TMP"; tar -C "$TMP" -cf "$OUT_BOOT_TAR" .; umount "$TMP"
+mount -o ro "${LO}p1" "$TMP"
+tar --xattrs -C "$TMP" -cf "$OUT_ESP_TAR" .
+umount "$TMP"
+mount -o ro "${LO}p2" "$TMP"
+tar --xattrs -C "$TMP" -cf "$OUT_BOOT_TAR" .
+umount "$TMP"
 
 echo -n "$LUKS_PASSPHRASE" | cryptsetup open --key-file=- "${LO}p3" fedroot
 mount -o subvolid=5 /dev/mapper/fedroot "$TMP"
