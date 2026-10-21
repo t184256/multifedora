@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Stage 11: regenerate the running kernel's initramfs and check bootability
+
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+[[ -f tmp/05/dual.img ]] || die "no tmp/05/dual.img; run stage 05 first"
+
+mkdir -p tmp/11
+WORK=tmp/11/work.img
+cp --sparse=always tmp/05/dual.img "$WORK"
+
+# boot 1: regenerate, require the image to actually change, record hash
+./tool-spin-up "$WORK" \
+  'i=/boot/initramfs-$(uname -r).img
+   before=$(sha256sum "$i" | cut '-d ' -f1)
+   dracut --force
+   after=$(sha256sum "$i" | cut '-d ' -f1)
+   test "$before" != "$after"
+   echo "$after" > /etc/initramfs-test-sha'
+
+# boot 2: boot, check hash, grep for lingering old LUKS UUID
+./tool-spin-up "$WORK" \
+  'i=/boot/initramfs-$(uname -r).img
+   test "$(sha256sum "$i" | cut -d" " -f1)" = "$(cat /etc/initramfs-test-sha)"
+   real=$(sed -n "s/^luks-\([a-f0-9-]*\) .*/\1/p" /etc/crypttab)
+   [[ $real ]] || { echo "FAIL: no LUKS device in crypttab" >&2; exit 1; }
+   pat="luks-[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+   toks=$(grep -rahoE "$pat" \
+	       /etc /proc/cmdline /boot/loader /boot/multifedora /boot/efi \
+	       2>/dev/null | sort -u )
+   [[ $toks == "luks-$real" ]] || { echo >&2 "stray luks- entries"; exit 1 }
+   grep -qE "$pat" /etc/crypttab
+   grep -qaE "$pat" /tmp/ir.bin'
+
+rm -f "$WORK"
+touch tmp/11/ok

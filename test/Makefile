@@ -5,7 +5,7 @@ VM_TOOLS = tool-spin-up tool-inside-vm
 .DEFAULT_GOAL := all
 .PHONY: all install-initial install-second extract-second inject-remove \
         dual-install dual-boot-primary dual-boot-secondary \
-        yield yield-again chroot
+        yield yield-again chroot initramfs
 all: inject-remove dual-install dual-boot-primary dual-boot-secondary \
      chroot yield yield-again
 install-initial: tmp/01/initial.img
@@ -18,6 +18,7 @@ dual-boot-secondary: tmp/07/ok
 chroot: tmp/08/ok
 yield: tmp/09/yielded.img
 yield-again: tmp/10/ok
+initramfs: tmp/11/ok
 
 ISO_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/44/$\
     Server/x86_64/iso/Fedora-Server-dvd-x86_64-44-1.7.iso
@@ -84,10 +85,14 @@ tmp/10/ok: ../multifedora-yield ../multifedora-yield.service
 tmp/10/ok: $(EXTRACTED) $(VM_TOOLS)
 	./10-yield-again
 
+tmp/11/ok: tmp/05/dual.img 11-initramfs
+tmp/11/ok: $(VM_TOOLS)
+	./11-initramfs
+
 .PHONY: clean deepclean
 clean:
 	rm -rf tmp/01 tmp/02 tmp/03 tmp/04 tmp/05 tmp/06 tmp/07 tmp/08 tmp/09 \
-	       tmp/10
+	       tmp/10 tmp/11
 
 deepclean: clean
 	rm -rf tmp
