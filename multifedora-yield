@@ -16,7 +16,7 @@ DIR=$(dirname "$(readlink -f "$0")")
 export PATH="$DIR:$PATH"
 
 for t in btrfs findmnt mountpoint tar cp sed basename unshare \
-         mount readlink restorecon; do
+         mount readlink restorecon du df cut; do
   command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
 done
 
@@ -58,6 +58,25 @@ if [[ ! -L $LINK ]]; then
   exit 0
 fi
 NEXT=$(cd "$MULTI" && readlink -f "$LINK")
+
+# set up our own mounts
+fstab_src() { # $1=mountpoint $2=file
+  local src mp rest
+  while read -r src mp rest; do
+    if [[ $mp == "$1" ]]; then
+      echo "$src"
+      return 0
+    fi
+  done < "$2"
+  return 1
+}
+A_BOOT_SRC=$(fstab_src /boot /etc/fstab)
+A_ESP_SRC=$(fstab_src /boot/efi /etc/fstab)
+mountpoint -q /boot || mount "$A_BOOT_SRC" /boot
+
+NEED=$((3 * $(du -sx --block-size=1 "$NEXT/boot" | cut -f1)))  # 3x just in case
+(( $(df -B1 --output=avail /boot | tail -1) >= NEED )) || \
+  { echo "ERROR: /boot does not have $((NEED / 1048576)) MB free" >&2; exit 1; }
 
 # stash name: from the marker file, else hostname (with -2, -3, ...)
 NAME=$(cat "$MULTI/.next-yield-name" 2>/dev/null || hostname)
@@ -116,21 +135,6 @@ for sv in "$NEXT"/subvols/*; do
   fi
   mv "$sv" "$S0/$(basename "$sv")"
 done
-
-# set up our own mounts
-fstab_src() { # $1=mountpoint $2=file
-  local src mp rest
-  while read -r src mp rest; do
-    if [[ $mp == "$1" ]]; then
-      echo "$src"
-      return 0
-    fi
-  done < "$2"
-  return 1
-}
-A_BOOT_SRC=$(fstab_src /boot /etc/fstab)
-A_ESP_SRC=$(fstab_src /boot/efi /etc/fstab)
-mountpoint -q /boot || mount "$A_BOOT_SRC" /boot
 
 # stash the running /boot contents (except multifedora/ and efi/)
 echo "multifedora-yield: stashing /boot, bringing in the primed boot tree"

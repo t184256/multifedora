@@ -12,7 +12,7 @@ if [[ $# -ne 5 ]]; then
 fi
 
 for t in btrfs mount mountpoint findmnt tar ln mv systemctl \
-         basename sed cp chmod chroot readlink dirname; do
+         basename sed cp chmod chroot readlink dirname df stat; do
   command -v "$t" >/dev/null || { echo "ERROR: missing $t" >&2; exit 1; }
 done
 
@@ -32,6 +32,10 @@ if [[ ! $OLD_NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
   echo "ERROR: invalid name: $OLD_NAME" >&2
   exit 1
 fi
+
+NEED=$((3 * $(stat -c %s "$BOOT")))  # overshoot 3x just in case
+(( $(df -B1 --output=avail /boot | tail -1) >= NEED )) || \
+  { echo "ERROR: /boot does not have $((NEED / 1048576)) MB free" >&2; exit 1; }
 
 BDEV=$(findmnt -no SOURCE -T / | sed 's/\[.*\]//')  # strip [subvol=...]
 S0=$(mktemp -d)
